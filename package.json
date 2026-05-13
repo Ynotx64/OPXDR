@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n SERVER,WEB -c cyan,green \"npm:dev:server\" \"npm:dev:web\"",
+    "dev": "vite",
+    "dev:full": "concurrently -k -n SERVER,WEB -c cyan,green \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "node --watch server/index.js",
     "dev:web": "vite",
     "build": "vite build",

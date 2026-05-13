@@ -11,7 +11,6 @@ export default defineConfig({
   plugins: [react()],
   publicDir: "public",
   server: {
-    port: 5173,
     host: "0.0.0.0",
     allowedHosts: true,
     proxy: {
@@ -26,7 +25,6 @@ export default defineConfig({
         },
       },
     },
-    hmr: { overlay: false },
   },
   build: {
     outDir: "dist",

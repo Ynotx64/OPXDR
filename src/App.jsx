@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import GeoIntel from "./GeoIntel";
 import TorMonitor from "./TorMonitor";
+import TopBar from "./components/TopBar";
+import Sidebar from "./components/Sidebar";
 
 // ─── STORAGE ──────────────────────────────────────────────────────────────────
 // Swap 1: window.storage → localStorage
@@ -1567,7 +1569,7 @@ function InvestigationCard({a,done,onInvestigate,customRules}){
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // AGENT INVESTIGATIONS TAB — real Wazuh detections only
-// ═══════════════════════════════════════════════════════════════════════════════
+// ��══════════════════════════════════════════════════════════════════════════════
 const MEDIUM_PLUS=new Set(["CRITICAL","HIGH","MEDIUM"]);
 const HIGH_PLUS=new Set(["CRITICAL","HIGH"]);
 function InvestigationsTab({alerts,customRules,onInvestigate,investigated}){
@@ -1642,7 +1644,7 @@ function InvestigationsTab({alerts,customRules,onInvestigate,investigated}){
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DOCUMENTS TAB — saved investigations + reports
-// ═══════════════════════════════════════════════════════════════════════════════
+// ═══════════════���═══════════════════════════════════════════════════════════════
 function DocumentsTab({docs,onDelete}){
   const[search,setSearch]=useState("");
   const[typeFilter,setTypeFilter]=useState("all");
@@ -1807,7 +1809,7 @@ function DocumentsTab({docs,onDelete}){
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════���══════════════
 // MAIN APP — NAV: Registry | Slack Alerts | [Agent Chat]
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App(){
