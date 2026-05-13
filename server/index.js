@@ -1599,6 +1599,46 @@ app.post("/api/rule/trigger", async (req, res) => {
   }
 });
 
+// GET /api/rule/read — read a rule file from disk
+app.get("/api/rule/read", async (req, res) => {
+  const { file } = req.query;
+  if (!file) return res.status(400).json({ error: "file parameter required" });
+  const searchDirs = [RULES_LOCAL_ROOT, CUSTOM_RULES_DIR, WAZUH_RULES_DIR];
+  try {
+    let foundPath = "";
+    for (const dir of searchDirs) {
+      const fp = path.join(dir, file);
+      if (fs.existsSync(fp)) { foundPath = fp; break; }
+      const all = await walk(dir);
+      const m = all.find(f => f.endsWith("/" + file) || f.endsWith("\\" + file));
+      if (m) { foundPath = m; break; }
+    }
+    if (!foundPath) return res.status(404).json({ error: `Rule file "${file}" not found in any search path` });
+    const content = await fsp.readFile(foundPath, "utf-8");
+    res.json({ file: foundPath, content });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/rule/save — save (overwrite) a rule file on disk
+app.post("/api/rule/save", async (req, res) => {
+  const { file, content } = req.body || {};
+  if (!file || content == null) return res.status(400).json({ error: "file and content required" });
+  const searchDirs = [RULES_LOCAL_ROOT, CUSTOM_RULES_DIR, WAZUH_RULES_DIR];
+  try {
+    let foundPath = "";
+    for (const dir of searchDirs) {
+      const fp = path.join(dir, file);
+      if (fs.existsSync(fp)) { foundPath = fp; break; }
+      const all = await walk(dir);
+      const m = all.find(f => f.endsWith("/" + file) || f.endsWith("\\" + file));
+      if (m) { foundPath = m; break; }
+    }
+    if (!foundPath) return res.status(404).json({ error: `Rule file "${file}" not found` });
+    await fsp.writeFile(foundPath, content, "utf-8");
+    res.json({ ok: true, file: foundPath, saved: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // POST /api/wazuh/restart
 app.post("/api/wazuh/restart", async (_req, res) => {
   try { res.json(await restartWazuh()); }

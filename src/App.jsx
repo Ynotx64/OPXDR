@@ -1497,15 +1497,11 @@ function RuleRow({rule,gc,onSelect,onDelete,customRules}){
         <div style={{display:"flex",gap:4,alignItems:"center",justifyContent:"flex-end"}}>
           <SB l={rule.severity}/>
           <button onClick={e=>{e.stopPropagation();triggerAlert();}} title="Trigger as alert in Slack Alerts" style={{background:triggered?"#22c55e30":"none",border:`1px solid ${triggered?"#22c55e55":"#ff444433"}`,color:triggered?"#22c55e":"#ff6060",borderRadius:4,padding:"2px 7px",fontSize:"0.65rem",cursor:"pointer",fontFamily:"monospace",transition:"all 0.15s"}} onMouseEnter={e=>{if(!triggered){e.target.style.borderColor="#ff444477";e.target.style.color="#ff4444";}}} onMouseLeave={e=>{if(!triggered){e.target.style.borderColor="#ff444433";e.target.style.color="#ff6060";}}}>{triggered?"✓":"🚨"}</button>
-          <button onClick={e=>{e.stopPropagation();setShowInv(v=>!v);}} title={showInv?"Close investigation":"Inline investigation"} style={{background:showInv?"#a855f730":"none",border:`1px solid ${showInv?"#a855f755":"#1e293b"}`,color:showInv?"#a855f7":"#475569",borderRadius:4,padding:"2px 7px",fontSize:"0.65rem",cursor:"pointer",fontFamily:"monospace",transition:"all 0.15s"}} onMouseEnter={e=>{if(!showInv){e.target.style.borderColor="#a855f755";e.target.style.color="#a855f7";}}} onMouseLeave={e=>{if(!showInv){e.target.style.borderColor="#1e293b";e.target.style.color="#475569";}}}>🔬</button>
+          <button onClick={e=>{e.stopPropagation();setShowInv(v=>!v);}} title={showInv?"Close":"View/Edit rule"} style={{background:showInv?"#38bdf830":"none",border:`1px solid ${showInv?"#38bdf855":"#1e293b"}`,color:showInv?"#38bdf8":"#475569",borderRadius:4,padding:"2px 7px",fontSize:"0.65rem",cursor:"pointer",fontFamily:"monospace",transition:"all 0.15s"}} onMouseEnter={e=>{if(!showInv){e.target.style.borderColor="#38bdf855";e.target.style.color="#38bdf8";}}} onMouseLeave={e=>{if(!showInv){e.target.style.borderColor="#1e293b";e.target.style.color="#475569";}}}>{showInv?"✕":"📝"}</button>
           {rule.isCustom&&onDelete&&<button onClick={e=>{e.stopPropagation();onDelete(rule.id);}} style={{background:"none",border:"1px solid #ff444433",color:"#ff6060",borderRadius:4,padding:"1px 5px",fontSize:"0.61rem",cursor:"pointer",fontFamily:"monospace",opacity:0.5}} onMouseEnter={e=>e.target.style.opacity="1"} onMouseLeave={e=>e.target.style.opacity="0.5"}>✕</button>}
         </div>
       </div>
-      {showInv&&(
-        <div style={{padding:"0 16px 14px 16px",background:"#0a1628",borderBottom:"1px solid #0f172a"}}>
-          <InlineAgentChat rule={rule} liveAlert={null} customRules={customRules||[]} gc={gc}/>
-        </div>
-      )}
+      {showInv&&<RuleEditor rule={rule} gc={gc} customRules={customRules||[]} onClose={()=>setShowInv(false)}/>}
       {triggerOut&&(
         <div style={{padding:"4px 16px 8px 16px",background:"#0a1628",borderBottom:"1px solid #0f172a"}}>
           <pre style={{background:"#060d1a",border:"1px solid #ff444433",borderRadius:5,padding:"6px 10px",color:"#e2e8f0",fontSize:"0.62rem",fontFamily:"monospace",whiteSpace:"pre-wrap",wordBreak:"break-all",margin:0,maxHeight:120,overflow:"auto"}}>{triggerOut}</pre>
@@ -1835,6 +1831,90 @@ function DocumentsTab({docs,onDelete}){
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Rule Editor — view/edit rule file + AI assist + trigger ────────────────
+function RuleEditor({rule,gc,customRules,onClose}){
+  const[content,setContent]=useState("Loading...");
+  const[filePath,setFilePath]=useState("");
+  const[dirty,setDirty]=useState(false);
+  const[saving,setSaving]=useState(false);
+  const[aiMsg,setAiMsg]=useState("");
+  const[aiLoading,setAiLoading]=useState(false);
+  const[triggerOut,setTriggerOut]=useState("");
+  const[triggerLoading,setTriggerLoading]=useState(false);
+  useEffect(()=>{
+    fetch("/api/rule/read?file="+encodeURIComponent(rule.file||"")).then(r=>r.json()).then(j=>{
+      if(j.content){setContent(j.content);setFilePath(j.file);}
+      else setContent("// "+j.error);
+    }).catch(()=>setContent("// Error loading rule file"));
+  },[rule.file]);
+  async function handleSave(){
+    setSaving(true);
+    try {
+      await fetch("/api/rule/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({file:rule.file,content})});
+      setDirty(false);
+    } catch(e){alert("Save failed: "+e.message);}
+    setSaving(false);
+  }
+  async function handleAi(){
+    setAiLoading(true);setAiMsg("");
+    const sys = "You are a Wazuh detection engineer. Help the user edit this rule. Suggest changes, explain the rule logic, or improve the detection. Be concise.";
+    const msgs = [{role:"user",content:"Rule file: "+rule.file+"\n\nCurrent content:\n```\n"+content+"\n```\n\nUser request: "+aiMsg}];
+    let full = "";
+    try {
+      const res = await fetch("/api/agent",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({agentType:"ruleAssistant",messages:[{role:"system",content:sys},...msgs],stream:true})});
+      if(!res.ok)throw new Error("API error: "+res.status);
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      while(true){
+        const {done,value} = await reader.read();
+        if(done)break;
+        for(const ln of dec.decode(value).split("\n")){
+          if(!ln.startsWith("data:"))continue;
+          const d=ln.slice(5).trim();
+          if(d==="[DONE]")continue;
+          try{const j=JSON.parse(d);const t=j.choices?.[0]?.delta?.content||(j.type==="content_block_delta"&&j.delta?.text?j.delta.text:"");if(t){full+=t;setAiMsg(full);}}catch{}
+        }
+      }
+    }catch(e){setAiMsg("Error: "+e.message);}
+    setAiLoading(false);
+  }
+  async function handleTrigger(){
+    setTriggerLoading(true);setTriggerOut("");
+    try {
+      const r=await fetch("/api/rule/trigger",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ruleId:rule.id,ruleName:rule.name,file:rule.file,tactic:rule.tactic,mitre:rule.mitre,severity:rule.severity})});
+      const j=await r.json();
+      setTriggerOut("⚡ "+j.cmd+"\n"+(j.stdout||"")+(j.stderr?"\n⚠ "+j.stderr:""));
+    }catch(e){setTriggerOut("Error: "+e.message);}
+    setTriggerLoading(false);
+  }
+  return(
+    <div style={{padding:"12px 16px",background:"#060d1a",border:"1px solid "+gc+"33",borderRadius:8,marginTop:6,marginBottom:10}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+        <span style={{fontSize:"0.85rem"}}>📝</span>
+        <span style={{color:gc,fontFamily:"'Oxanium',monospace",fontWeight:700,fontSize:"0.75rem"}}>{rule.id}</span>
+        <code style={{color:"#475569",fontSize:"0.62rem",fontFamily:"monospace",flex:1}}>{filePath||rule.file}</code>
+        <button onClick={handleSave} disabled={!dirty||saving} style={{background:dirty?"#22c55e20":"#1e293b",border:`1px solid ${dirty?"#22c55e55":"#1e293b"}`,color:dirty?"#22c55e":"#475569",borderRadius:4,padding:"3px 10px",fontSize:"0.63rem",cursor:dirty?"pointer":"default",fontFamily:"monospace"}}>{saving?"Saving...":"💾 Save"}</button>
+        <button onClick={onClose} style={{background:"none",border:"1px solid #1e293b",color:"#64748b",borderRadius:4,padding:"3px 8px",fontSize:"0.63rem",cursor:"pointer",fontFamily:"monospace"}}>✕</button>
+      </div>
+      {/* Rule content editor */}
+      <textarea value={content} onChange={e=>{setContent(e.target.value);setDirty(true);}} style={{width:"100%",height:180,background:"#000a18",border:"1px solid #1e293b",borderRadius:5,color:"#e2e8f0",fontSize:"0.65rem",fontFamily:"monospace",padding:8,outline:"none",resize:"vertical",tabSize:2}} spellCheck={false}/>
+      {/* Trigger section */}
+      <div style={{display:"flex",gap:6,alignItems:"center",marginTop:8,marginBottom:8}}>
+        <button onClick={handleTrigger} disabled={triggerLoading} style={{background:triggerLoading?"rgba(255,165,0,0.2)":"rgba(255,68,68,0.1)",border:`1px solid ${triggerLoading?"#ffa500":"rgba(255,68,68,0.3)"}`,color:triggerLoading?"#ffa500":"#ff6060",borderRadius:4,padding:"3px 10px",fontSize:"0.63rem",cursor:"pointer",fontFamily:"monospace"}}>{triggerLoading?"⏳ Triggering...":"🚨 Trigger Alert"}</button>
+        {dirty&&<span style={{color:"#f97316",fontSize:"0.6rem",fontFamily:"monospace"}}>⚠ Unsaved changes — trigger uses saved rule</span>}
+      </div>
+      {triggerOut&&<pre style={{background:"#000a18",border:"1px solid #ff444433",borderRadius:5,padding:"6px 10px",color:"#e2e8f0",fontSize:"0.6rem",fontFamily:"monospace",whiteSpace:"pre-wrap",wordBreak:"break-all",marginBottom:8,maxHeight:100,overflow:"auto"}}>{triggerOut}</pre>}
+      {/* AI assistant */}
+      <div style={{display:"flex",gap:6,marginTop:4}}>
+        <input value={aiMsg} onChange={e=>setAiMsg(e.target.value)} placeholder="Ask AI to edit/explain this rule..." style={{flex:1,background:"#000a18",border:"1px solid #1e293b",borderRadius:4,color:"#e2e8f0",fontSize:"0.63rem",fontFamily:"monospace",padding:"5px 8px",outline:"none"}} onKeyDown={e=>{if(e.key==="Enter"&&aiMsg.trim()&&!aiLoading)handleAi();}}/>
+        <button onClick={handleAi} disabled={aiLoading||!aiMsg.trim()} style={{background:"rgba(168,85,247,0.1)",border:"1px solid rgba(168,85,247,0.3)",color:"#a855f7",borderRadius:4,padding:"3px 12px",fontSize:"0.63rem",cursor:"pointer",fontFamily:"monospace",whiteSpace:"nowrap"}}>{aiLoading?"🤖...":"🤖 Ask AI"}</button>
+      </div>
+      {aiMsg&&<div style={{background:"#0d0d1a",border:"1px solid #a855f722",borderRadius:5,padding:"8px 10px",marginTop:6,color:"#cbd5e1",fontSize:"0.62rem",fontFamily:"monospace",whiteSpace:"pre-wrap",maxHeight:200,overflow:"auto"}}>{aiMsg}</div>}
     </div>
   );
 }
