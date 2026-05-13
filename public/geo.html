@@ -1,0 +1,1771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OPXDR GEO INTEL · v20260511-134608</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Oxanium:wght@300;400;600;700;800&family=IBM+Plex+Mono:wght@400;500;700&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Oxanium', monospace;
+    background: #000810;
+    color: #e2e8f0;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 2px; }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+
+  /* ── TOP NAV — compact professional ── */
+  #topnav {
+    height: 42px;
+    background: rgba(0,4,12,0.98);
+    border-bottom: 1px solid rgba(0,80,180,0.22);
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    gap: 6px;
+    flex-shrink: 0;
+    z-index: 1000;
+    position: relative;
+    backdrop-filter: blur(12px);
+  }
+
+  .logo {
+    display: flex; align-items: center; gap: 6px;
+    margin-right: 6px; flex-shrink: 0;
+  }
+  .logo-icon {
+    width: 24px; height: 24px;
+    background: linear-gradient(135deg, #0ea5e9, #6366f1);
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.75rem;
+  }
+  .logo-text .main { font-size: 0.78rem; font-weight: 800; letter-spacing: 2px; }
+  .logo-text .sub  { font-size: 0.48rem; color: #334155; letter-spacing: 1.5px; }
+  .alpha-badge {
+    background: rgba(255,159,10,0.15); border: 1px solid rgba(255,159,10,0.35);
+    color: #ff9f0a; padding: 1px 5px; border-radius: 2px; font-size: 0.55rem; font-weight: 700;
+  }
+
+  /* Search */
+  #search-wrap { position: relative; flex-shrink: 0; }
+  #search-input {
+    background: rgba(0,20,45,0.9); border: 1px solid rgba(0,80,180,0.25);
+    border-radius: 6px; padding: 4px 10px 4px 28px;
+    color: #94a3b8; font-size: 0.68rem; font-family: 'Oxanium', monospace;
+    width: 200px; outline: none; transition: border-color 0.2s, width 0.3s;
+  }
+  #search-input:focus { border-color: rgba(0,140,255,0.5); color: #e2e8f0; width: 240px; }
+  .search-icon { position:absolute;left:9px;top:50%;transform:translateY(-50%);color:#334155;font-size:0.72rem;pointer-events:none; }
+  #search-kbd { position:absolute;right:7px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,0.04);border:1px solid #1e293b;color:#334155;font-size:0.52rem;padding:1px 4px;border-radius:2px; }
+
+  /* Search dropdown */
+  #search-dropdown {
+    display:none;position:absolute;top:calc(100% + 5px);left:0;width:320px;
+    background:rgba(0,8,22,0.99);border:1px solid rgba(0,80,180,0.3);border-radius:8px;
+    overflow:hidden;z-index:2000;box-shadow:0 16px 48px rgba(0,0,0,0.7);animation:fadeIn 0.12s ease;
+  }
+  #search-dropdown.open { display:block; }
+  .search-section-label { color:#334155;font-size:0.58rem;letter-spacing:2px;padding:8px 12px 5px;display:flex;align-items:center;gap:6px; }
+  .search-result { padding:7px 12px;cursor:pointer;transition:background 0.12s;display:flex;align-items:flex-start;gap:8px; }
+  .search-result:hover { background:rgba(0,80,180,0.12); }
+  .search-result .sr-icon { color:#475569;font-size:0.75rem;margin-top:1px;flex-shrink:0; }
+  .search-result .sr-name { color:#e2e8f0;font-size:0.7rem; }
+  .search-result .sr-sub  { color:#475569;font-size:0.6rem;margin-top:1px; }
+  .search-divider { height:1px;background:rgba(0,80,180,0.1);margin:3px 0; }
+
+  /* Coords bar — compact */
+  #coords-bar {
+    flex:1; display:flex; gap:12px; align-items:center;
+    font-family:'IBM Plex Mono',monospace; font-size:0.62rem; color:#0ea5e9;
+    min-width:0;
+  }
+  .coord-item { text-align:center; flex-shrink:0; }
+  .coord-item .label { color:#1e3a5f; font-size:0.5rem; letter-spacing:1px; }
+
+  /* Nav buttons — compact uniform style */
+  .region-btn {
+    background:none; border:1px solid transparent; color:#334155;
+    padding:2px 6px; font-size:0.6rem; border-radius:3px; cursor:pointer;
+    font-family:'Oxanium',monospace; transition:all 0.15s; white-space:nowrap; flex-shrink:0;
+  }
+  .region-btn:hover  { color:#64748b; border-color:rgba(0,80,180,0.2); }
+  .region-btn.active { background:rgba(0,90,200,0.22); border-color:rgba(0,140,255,0.4); color:#38bdf8; }
+
+  .time-btn {
+    background:none; border:1px solid transparent; color:#334155;
+    padding:2px 6px; font-size:0.58rem; border-radius:3px; cursor:pointer;
+    font-family:'IBM Plex Mono',monospace; transition:all 0.12s; flex-shrink:0;
+  }
+  .time-btn.active { background:rgba(0,90,200,0.22); border-color:#0ea5e9; color:#38bdf8; }
+
+  .live-btn {
+    background:rgba(0,180,80,0.1); border:1px solid rgba(34,197,94,0.3);
+    color:#22c55e; padding:2px 8px; font-size:0.58rem; border-radius:3px;
+    cursor:pointer; font-family:'IBM Plex Mono',monospace;
+    animation:pulse 2s infinite; flex-shrink:0;
+  }
+
+  /* Nav action buttons group — right side */
+  .nav-actions {
+    display:flex; align-items:center; gap:4px; flex-shrink:0; margin-left:2px;
+  }
+  .nav-btn {
+    display:flex; align-items:center; gap:4px;
+    padding:2px 8px; border-radius:3px; cursor:pointer;
+    font-size:0.58rem; font-family:'IBM Plex Mono',monospace;
+    border:1px solid; transition:all 0.15s; white-space:nowrap;
+  }
+  .nav-btn-keys   { background:rgba(139,92,246,0.1); border-color:rgba(139,92,246,0.3); color:#a78bfa; }
+  .nav-btn-threat { background:rgba(255,45,85,0.08); border-color:rgba(255,45,85,0.25); color:#ff6b8a; display:none; }
+  .nav-btn-keys:hover   { background:rgba(139,92,246,0.2); }
+  .nav-btn-threat:hover { background:rgba(255,45,85,0.15); }
+  .nav-btn-threat.visible { display:flex; }
+
+  /* Separator */
+  .nav-sep { width:1px; height:22px; background:rgba(0,80,180,0.2); flex-shrink:0; }
+
+  /* ── MAIN BODY ── */
+  #main-body {
+    display:flex; flex:1; overflow:hidden; position:relative;
+  }
+
+  /* ── LEFT PANEL — narrow, clean ── */
+  #left-panel {
+    width: 195px;
+    background: rgba(0,4,14,0.96);
+    border-right: 1px solid rgba(0,70,160,0.18);
+    display: flex; flex-direction: column;
+    overflow: hidden; transition: width 0.25s;
+    flex-shrink: 0; z-index: 100;
+  }
+  #left-panel.collapsed { width: 0; }
+
+  .panel-header { padding:9px 12px 6px; border-bottom:1px solid rgba(0,70,160,0.12); flex-shrink:0; }
+  .panel-label  { font-size:0.56rem; color:#1e3a5f; letter-spacing:2px; margin-bottom:7px; }
+  .tab-row      { display:flex; gap:1px; }
+  .tab-btn {
+    background:none; border:none; color:#334155; padding:3px 7px; font-size:0.6rem;
+    border-radius:3px; cursor:pointer; font-family:'Oxanium',monospace; transition:all 0.12s;
+  }
+  .tab-btn:hover  { color:#64748b; }
+  .tab-btn.active { background:rgba(0,90,200,0.2); color:#38bdf8; }
+
+  .layers-scroll { flex:1; overflow-y:auto; padding:4px 8px 8px; }
+  .layers-scroll::-webkit-scrollbar { width:3px; }
+  .layers-scroll::-webkit-scrollbar-thumb { background:#1e293b; border-radius:2px; }
+
+  .layer-group-label {
+    font-size:0.54rem; color:#1e3a5f; letter-spacing:2px; padding:8px 4px 4px;
+    border-top:1px solid rgba(0,70,160,0.08); margin-top:4px;
+  }
+  .layer-group-label:first-child { border-top:none; margin-top:0; }
+
+  .layer-row {
+    display:flex; align-items:center; gap:7px; padding:4px 2px; cursor:pointer;
+    border-radius:5px; transition:background 0.12s;
+  }
+  .layer-row:hover { background:rgba(0,80,180,0.08); }
+  .layer-icon  { font-size:0.78rem; width:16px; flex-shrink:0; text-align:center; }
+  .layer-info  { flex:1; min-width:0; }
+  .layer-name  { font-size:0.67rem; transition:color 0.2s; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .layer-count { font-size:0.57rem; font-family:'IBM Plex Mono',monospace; }
+
+  /* CYBER master switch — special styling */
+  .cyber-master-row {
+    background: linear-gradient(90deg, rgba(6,182,212,0.08) 0%, rgba(6,182,212,0.03) 100%);
+    border: 1px solid rgba(6,182,212,0.18);
+    border-radius: 7px; margin-bottom: 6px; padding: 7px 8px;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .cyber-master-row:hover { background:rgba(6,182,212,0.12); border-color:rgba(6,182,212,0.35); }
+  .cyber-master-row.active { background:rgba(6,182,212,0.15); border-color:rgba(6,182,212,0.4); }
+
+  .toggle {
+    width:28px; height:15px; border-radius:8px; position:relative; cursor:pointer;
+    transition:background 0.22s, border-color 0.22s; flex-shrink:0; border:1px solid;
+  }
+  .toggle-knob {
+    position:absolute; top:1px; width:11px; height:11px; border-radius:50%;
+    background:#fff; transition:left 0.22s; box-shadow:0 1px 3px rgba(0,0,0,0.5);
+  }
+
+  .discord-btn {
+    margin:8px 4px 4px; background:rgba(88,101,242,0.08); border:1px solid rgba(88,101,242,0.25);
+    border-radius:6px; padding:7px 10px; display:flex; align-items:center; gap:7px;
+    cursor:pointer; color:#6675f7; font-size:0.67rem; transition:background 0.2s;
+  }
+  .discord-btn:hover { background:rgba(88,101,242,0.16); }
+
+  /* Collapse toggle */
+  .collapse-btn {
+    position:absolute; top:50%; transform:translateY(-50%);
+    background:rgba(0,12,30,0.95); border:1px solid rgba(0,80,180,0.3);
+    color:#38bdf8; width:15px; height:44px;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; border-radius:0 4px 4px 0; font-size:0.65rem; z-index:200; transition:left 0.25s;
+  }
+
+  /* ── MAP CONTAINER ── */
+  #map { flex:1; position:relative; overflow:hidden; background:#000408; }
+
+  #cesiumContainer {
+    position:absolute; inset:0; width:100%; height:100%;
+    display:block; background:#000408; z-index:1;
+  }
+
+  /* Prevent any Google Maps canvas from appearing */
+  .gm-style, [id^="gmap"], canvas.gm-style { display:none !important; }
+
+  #overlay-canvas {
+    position:absolute; inset:0; pointer-events:none; z-index:10;
+  }
+
+  /* ── CYBER THREAT LOG ── */
+  #cyber-log-wrap {
+    position:absolute; bottom:0; left:0; right:0;
+    height:220px; background:rgba(0,3,10,0.97);
+    border-top:1px solid rgba(255,45,85,0.3); z-index:180;
+    display:none; flex-direction:column;
+    font-family:'IBM Plex Mono',monospace; backdrop-filter:blur(10px);
+    transition:height 0.22s ease;
+  }
+  #cyber-log-wrap.expanded { height:400px; }
+  #cyber-log-wrap.visible  { display:flex; }
+  #cyber-log-header {
+    display:flex; align-items:center; gap:6px; padding:4px 10px;
+    background:rgba(255,45,85,0.05); border-bottom:1px solid rgba(255,45,85,0.18); flex-shrink:0;
+  }
+  .clh-badge  { background:#ff2d55;color:#fff;font-size:0.54rem;font-weight:700;padding:1px 7px;border-radius:2px;letter-spacing:1px; }
+  .clh-title  { font-size:0.6rem;color:#ff6b8a;letter-spacing:1px;font-weight:700; }
+  .clh-count  { font-size:0.55rem;color:#334155; }
+  .clh-filters { display:flex;gap:3px;margin-left:8px; }
+  .clh-filter { font-size:0.53rem;padding:1px 6px;border-radius:9px;cursor:pointer;border:1px solid transparent;transition:all 0.12s;color:#334155;background:rgba(255,255,255,0.02); }
+  .clh-filter:hover  { color:#64748b; }
+  .clh-filter.active { color:#fff;background:rgba(255,45,85,0.16);border-color:rgba(255,45,85,0.38); }
+  .clh-right { margin-left:auto;display:flex;align-items:center;gap:6px; }
+  .clh-btn { background:none;border:1px solid #1e3a5f;color:#334155;font-size:0.55rem;padding:2px 7px;border-radius:3px;cursor:pointer;font-family:'IBM Plex Mono',monospace;transition:all 0.12s; }
+  .clh-btn:hover { color:#94a3b8;border-color:#334155; }
+  .clh-live { width:5px;height:5px;border-radius:50%;background:#ff2d55;animation:pulse 1.2s infinite; }
+  #cyber-log-panel { flex:1;overflow-y:auto;padding:1px 0; }
+  #cyber-log-panel::-webkit-scrollbar { width:2px; }
+  #cyber-log-panel::-webkit-scrollbar-thumb { background:#1e3a5f; }
+
+  /* Log row */
+  .clog-row { padding:0;border-bottom:1px solid rgba(255,255,255,0.03);cursor:pointer;transition:background 0.1s;border-left-width:3px;border-left-style:solid; }
+  .clog-row:hover  { background:rgba(255,255,255,0.025); }
+  .clog-row.expanded { background:rgba(0,8,24,0.7);border-bottom:2px solid rgba(255,255,255,0.06); }
+  .clog-session-hdr { display:flex;align-items:center;gap:5px;padding:4px 22px 4px 8px;flex-wrap:nowrap;overflow:hidden;position:relative; }
+  .clog-session-hdr::after { content:"▼";position:absolute;right:6px;font-size:0.5rem;color:#1e3a5f;transition:transform 0.18s; }
+  .clog-row.expanded .clog-session-hdr::after { transform:rotate(180deg);color:#64748b; }
+  .clog-ts2 { font-size:0.54rem;color:#334155;flex-shrink:0;white-space:nowrap; }
+  .clog-type-badge { font-size:0.53rem;font-weight:700;padding:1px 5px;border-radius:2px;letter-spacing:0.3px;flex-shrink:0;white-space:nowrap; }
+  .clog-sev2 { font-size:0.52rem;padding:1px 5px;border-radius:2px;font-weight:700;flex-shrink:0;white-space:nowrap; }
+  .clog-cls  { font-size:0.52rem;padding:1px 4px;border-radius:2px;flex-shrink:0;white-space:nowrap; }
+  .clog-proto-badge { font-size:0.52rem;color:#1e3a5f;margin-left:3px;flex-shrink:0;white-space:nowrap; }
+  .clog-summary { font-size:0.57rem;color:#334155;margin-left:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0; }
+  .clog-detail { display:none;border-top:1px solid rgba(255,255,255,0.04); }
+  .clog-row.expanded .clog-detail { display:block; }
+  .clog-cols { display:grid;grid-template-columns:1fr 1fr;gap:0; }
+  .clog-left,.clog-right { padding:5px 8px;display:flex;flex-direction:column;gap:4px; }
+  .clog-left { border-right:1px solid rgba(255,255,255,0.04); }
+  .clog-section { background:rgba(255,255,255,0.012);border-radius:3px;padding:4px 7px; }
+  .clog-section-title { font-size:0.54rem;font-weight:700;letter-spacing:1px;margin-bottom:3px;padding-bottom:2px;border-bottom:1px solid rgba(255,255,255,0.04); }
+  .clog-grid { display:grid;grid-template-columns:auto 1fr;gap:1px 6px; }
+  .cgl { font-size:0.53rem;color:#334155;white-space:nowrap;padding:1px 0;align-self:start; }
+  .cgv { font-size:0.58rem;color:#64748b;padding:1px 0;word-break:break-all;font-family:'IBM Plex Mono',monospace; }
+  .cgv-ip { color:#38bdf8;cursor:pointer; }
+  .cgv-ip:hover { color:#7dd3fc; }
+  .cgv-port { color:#f59e0b; }
+  .clog-fp { color:#475569;font-size:0.52rem;word-break:break-all; }
+  .clog-cc { background:rgba(56,189,248,0.1);color:#38bdf8;font-size:0.5rem;padding:0 3px;border-radius:2px;border:1px solid rgba(56,189,248,0.2);font-weight:700; }
+
+  @keyframes logRowIn { from{opacity:0;transform:translateY(-4px);background:rgba(6,182,212,0.07)} to{opacity:1;transform:translateY(0);background:transparent} }
+  .clog-new { animation:logRowIn 0.4s ease forwards; }
+
+  /* Scanlines subtle */
+  .scanlines {
+    position:absolute;inset:0;pointer-events:none;z-index:5;
+    background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,60,140,0.012) 2px,rgba(0,60,140,0.012) 4px);
+  }
+
+  /* Conflict badge */
+  #conflict-badge {
+    position:absolute;top:12px;right:12px;
+    background:rgba(255,30,30,0.1);border:1px solid rgba(255,30,30,0.35);
+    border-radius:6px;padding:5px 10px;display:flex;align-items:center;gap:7px;
+    z-index:50;animation:fadeIn 0.3s ease;
+  }
+
+  /* ── RIGHT PANEL ── */
+  #right-panel {
+    width:255px; background:rgba(0,4,14,0.96);
+    border-left:1px solid rgba(0,70,160,0.18);
+    display:flex;flex-direction:column;
+    overflow:hidden;flex-shrink:0;z-index:100;transition:width 0.25s;
+  }
+  #right-panel.collapsed { width:0; }
+
+  .rp-header { padding:10px 12px 7px;border-bottom:1px solid rgba(0,70,160,0.12);flex-shrink:0; }
+  .rp-title  { font-size:0.68rem;font-weight:700;letter-spacing:2px;margin-bottom:8px; }
+  .rp-tabs   { display:flex;gap:2px; }
+  .rp-tab {
+    background:none;border:none;border-bottom:2px solid transparent;color:#334155;
+    padding:3px 6px;font-size:0.6rem;cursor:pointer;font-family:'Oxanium',monospace;transition:all 0.12s;
+  }
+  .rp-tab.active { border-bottom-color:#0ea5e9;color:#0ea5e9; }
+
+  .rp-scroll { flex:1;overflow-y:auto;padding:10px 12px; }
+  .rp-scroll::-webkit-scrollbar { width:3px; }
+  .rp-scroll::-webkit-scrollbar-thumb { background:#1e293b; }
+
+  .rp-section-label { font-size:0.54rem;color:#1e3a5f;letter-spacing:2px;margin-bottom:7px;margin-top:4px; }
+
+  .entity-card {
+    background:rgba(0,20,45,0.5);border:1px solid rgba(0,80,180,0.22);
+    border-radius:7px;padding:10px;margin-bottom:8px;
+  }
+  .tab-btn.active { background: rgba(0,100,200,0.2); color: #38bdf8; }
+
+  .layers-scroll {
+    flex: 1; overflow-y: auto; padding: 8px 12px;
+  }
+
+  .layer-group-label {
+    font-size: 0.58rem; color: #334155; letter-spacing: 2px;
+    margin: 10px 0 5px;
+  }
+
+  .layer-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 2px; cursor: pointer;
+    border-radius: 5px; transition: background 0.15s;
+  }
+  .layer-row:hover { background: rgba(0,100,200,0.07); }
+  .layer-icon { font-size: 0.82rem; width: 18px; flex-shrink: 0; }
+  .layer-info { flex: 1; min-width: 0; }
+  .layer-name {
+    font-size: 0.7rem; transition: color 0.2s;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .layer-count { font-size: 0.6rem; font-family: 'IBM Plex Mono', monospace; }
+
+  .toggle {
+    width: 30px; height: 16px; border-radius: 8px;
+    position: relative; cursor: pointer;
+    transition: background 0.25s, border-color 0.25s;
+    flex-shrink: 0;
+    border: 1px solid;
+  }
+  .toggle-knob {
+    position: absolute; top: 1px;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: #fff; transition: left 0.25s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  }
+
+  .discord-btn {
+    margin: 8px 4px 4px;
+    background: rgba(88,101,242,0.1);
+    border: 1px solid rgba(88,101,242,0.3);
+    border-radius: 8px; padding: 8px 12px;
+    display: flex; align-items: center; gap: 8px;
+    cursor: pointer; color: #6675f7; font-size: 0.7rem;
+    transition: background 0.2s;
+  }
+  .discord-btn:hover { background: rgba(88,101,242,0.18); }
+
+  /* Collapse toggle */
+  .collapse-btn {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    background: rgba(0,18,40,0.95);
+    border: 1px solid rgba(0,100,200,0.3);
+    color: #38bdf8; width: 18px; height: 50px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; border-radius: 0 5px 5px 0;
+    font-size: 0.72rem; z-index: 200;
+    transition: left 0.3s;
+  }
+
+  /* ── MAP ── */
+  #map {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: #000810;
+  }
+
+  /* Overlay markers rendered on top of map */
+  #overlay-canvas {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  /* ── CYBER THREAT LOG PANEL ── */
+  #cyber-log-wrap {
+    position: fixed;
+    bottom: 0;
+    left: 220px;
+    right: 320px;
+    height: 340px;
+    background: rgba(0,4,12,0.97);
+    border-top: 1px solid rgba(255,45,85,0.35);
+    z-index: 200;
+    display: none;
+    flex-direction: column;
+    font-family: 'IBM Plex Mono', monospace;
+    backdrop-filter: blur(8px);
+    transition: height 0.25s;
+  }
+  #cyber-log-wrap.expanded { height: 560px; }
+  #cyber-log-wrap.visible  { display: flex; }
+  #cyber-log-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 12px;
+    background: rgba(255,45,85,0.07);
+    border-bottom: 1px solid rgba(255,45,85,0.2);
+    flex-shrink: 0;
+  }
+  .clh-badge { background:#ff2d55;color:#fff;font-size:0.57rem;font-weight:700;padding:1px 8px;border-radius:3px;letter-spacing:1px; }
+  .clh-title { font-size:0.63rem;color:#ff6b8a;letter-spacing:1px;font-weight:700; }
+  .clh-count { font-size:0.58rem;color:#334155;margin-left:2px; }
+  .clh-filters { display:flex;gap:4px;margin-left:10px; }
+  .clh-filter { font-size:0.56rem;padding:1px 7px;border-radius:10px;cursor:pointer;border:1px solid transparent;transition:all 0.15s;color:#334155;background:rgba(255,255,255,0.03); }
+  .clh-filter:hover { color:#64748b; }
+  .clh-filter.active { color:#fff;background:rgba(255,45,85,0.18);border-color:rgba(255,45,85,0.4); }
+  .clh-right { margin-left:auto;display:flex;align-items:center;gap:8px; }
+  .clh-btn { background:none;border:1px solid #1e3a5f;color:#334155;font-size:0.58rem;padding:2px 8px;border-radius:4px;cursor:pointer;font-family:'IBM Plex Mono',monospace;transition:all 0.15s; }
+  .clh-btn:hover { color:#94a3b8;border-color:#334155; }
+  .clh-live { width:6px;height:6px;border-radius:50%;background:#ff2d55;animation:pulse2 1.2s infinite; }
+  #cyber-log-panel { flex:1;overflow-y:auto;padding:2px 0; }
+  #cyber-log-panel::-webkit-scrollbar { width:3px; }
+  #cyber-log-panel::-webkit-scrollbar-thumb { background:#1e3a5f;border-radius:2px; }
+  .clog-row { padding:0;border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer;transition:background 0.12s;border-left-width:3px;border-left-style:solid;margin-bottom:1px; }
+  .clog-row:hover { background:rgba(255,255,255,0.03); }
+  .clog-row.expanded { background:rgba(0,10,30,0.6); border-bottom:2px solid rgba(255,255,255,0.07); }
+  /* Session header — always visible, compact single line */
+  .clog-session-hdr { display:flex;align-items:center;gap:6px;padding:5px 10px;flex-wrap:nowrap;overflow:hidden;position:relative; }
+  .clog-session-hdr::after { content:"▼";position:absolute;right:8px;font-size:0.55rem;color:#1e3a5f;transition:transform 0.2s; }
+  .clog-row.expanded .clog-session-hdr::after { transform:rotate(180deg);color:#64748b; }
+  .clog-sid { font-size:0.57rem;color:#1e3a5f;font-family:'IBM Plex Mono',monospace;flex-shrink:0;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+  .clog-ts2 { font-size:0.57rem;color:#334155;flex-shrink:0;white-space:nowrap; }
+  .clog-type-badge { font-size:0.56rem;font-weight:700;padding:1px 6px;border-radius:3px;letter-spacing:0.5px;flex-shrink:0;white-space:nowrap; }
+  .clog-sev2 { font-size:0.55rem;padding:1px 5px;border-radius:3px;font-weight:700;flex-shrink:0;white-space:nowrap; }
+  .clog-cls { font-size:0.55rem;padding:1px 5px;border-radius:3px;flex-shrink:0;white-space:nowrap; }
+  .clog-proto-badge { font-size:0.55rem;color:#334155;margin-left:4px;flex-shrink:0;white-space:nowrap; }
+  /* Compact summary line — shown in header when collapsed */
+  .clog-summary { font-size:0.6rem;color:#475569;margin-left:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0; }
+  /* Detail panel — hidden by default, shown when expanded */
+  .clog-detail { display:none;border-top:1px solid rgba(255,255,255,0.05); }
+  .clog-row.expanded .clog-detail { display:block; }
+  /* Agent report */
+  .clog-report { font-family:'IBM Plex Mono',monospace;font-size:0.6rem;color:#e2e8f0; }
+  .clog-report-hdr { display:flex;align-items:center;gap:5px;padding:6px 10px 5px;border-bottom:1px solid rgba(255,255,255,0.04); }
+  .clog-report-tag { font-size:0.52rem;font-weight:700;padding:1px 7px;border-radius:3px;border:1px solid;letter-spacing:0.5px; }
+  .clog-section { padding:5px 10px;border-bottom:1px solid rgba(255,255,255,0.03); }
+  .clog-section-label { font-size:0.5rem;color:#1e3a5f;letter-spacing:2px;margin-bottom:4px; }
+  .clog-grid2 { display:grid;grid-template-columns:80px 1fr;gap:1px 8px; }
+  .cg-k { font-size:0.55rem;color:#334155;padding:1px 0;align-self:start;white-space:nowrap; }
+  .cg-v { font-size:0.58rem;color:#64748b;padding:1px 0;word-break:break-all;font-family:'IBM Plex Mono',monospace; }
+  .clog-narrative { font-size:0.6rem;color:#94a3b8;line-height:1.65;padding:2px 0; }
+  .clog-response-list { display:flex;flex-direction:column;gap:3px; }
+  .clog-response-item { font-size:0.58rem;color:#64748b;display:flex;gap:7px;line-height:1.5; }
+  .clog-action-btn { background:rgba(0,80,180,0.12);border:1px solid rgba(0,100,200,0.25);color:#38bdf8;font-size:0.55rem;padding:3px 9px;border-radius:4px;cursor:pointer;font-family:'IBM Plex Mono',monospace;transition:all 0.15s; }
+  .clog-action-btn:hover { background:rgba(0,120,255,0.2);border-color:rgba(0,160,255,0.4); }
+  /* Two column layout inside detail */
+  .clog-cols { display:grid;grid-template-columns:1fr 1fr;gap:0; }
+  .clog-left,.clog-right { padding:6px 10px;display:flex;flex-direction:column;gap:5px; }
+  .clog-left { border-right:1px solid rgba(255,255,255,0.04); }
+  /* Sections */
+  .clog-section { background:rgba(255,255,255,0.015);border-radius:4px;padding:5px 8px; }
+  .clog-section-title { font-size:0.57rem;font-weight:700;letter-spacing:1px;margin-bottom:3px;padding-bottom:3px;border-bottom:1px solid rgba(255,255,255,0.05); }
+  /* Grid fields */
+  .clog-grid { display:grid;grid-template-columns:auto 1fr;gap:1px 8px; }
+  .cgl { font-size:0.56rem;color:#334155;white-space:nowrap;padding:1px 0;align-self:start; }
+  .cgv { font-size:0.61rem;color:#64748b;padding:1px 0;word-break:break-all;font-family:'IBM Plex Mono',monospace; }
+  .cgv-ip { color:#38bdf8;cursor:pointer; }
+  .cgv-ip:hover { color:#7dd3fc; }
+  .cgv-port { color:#f59e0b; }
+  .clog-fp { color:#475569;font-size:0.55rem;word-break:break-all; }
+  .clog-cc { background:rgba(56,189,248,0.1);color:#38bdf8;font-size:0.53rem;padding:0 4px;border-radius:2px;border:1px solid rgba(56,189,248,0.2);font-weight:700; }
+
+  @keyframes logRowIn {
+    from { opacity:0; transform:translateY(-6px); background:rgba(6,182,212,0.08); }
+    to   { opacity:1; transform:translateY(0);    background:transparent; }
+  }
+  .clog-new { animation: logRowIn 0.5s ease forwards; }
+
+  /* Scan line */
+  .scanlines {
+    position: absolute; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,80,160,0.015) 2px, rgba(0,80,160,0.015) 4px);
+    pointer-events: none; z-index: 5;
+  }
+
+  /* Alert badge */
+  #conflict-badge {
+    position: absolute; top: 14px; right: 295px;
+    background: rgba(255,30,30,0.12);
+    border: 1px solid rgba(255,30,30,0.4);
+    border-radius: 7px; padding: 6px 12px;
+    display: flex; align-items: center; gap: 8px;
+    z-index: 50; animation: fadeIn 0.3s ease;
+  }
+
+  /* GPS Jam overlay */
+  .jam-overlay {
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 20;
+    animation: pulse 2s infinite;
+  }
+
+  /* ── RIGHT PANEL ── */
+  #right-panel {
+    width: 270px;
+    background: rgba(0,6,18,0.94);
+    border-left: 1px solid rgba(0,100,200,0.15);
+    display: flex; flex-direction: column;
+    overflow: hidden; flex-shrink: 0; z-index: 100;
+    transition: width 0.3s;
+  }
+  #right-panel.collapsed { width: 0; }
+
+  .rp-header {
+    padding: 12px 14px 8px;
+    border-bottom: 1px solid rgba(0,100,200,0.1);
+    flex-shrink: 0;
+  }
+  .rp-title { font-size: 0.72rem; font-weight: 700; letter-spacing: 2px; margin-bottom: 9px; }
+  .rp-tabs { display: flex; gap: 2px; }
+  .rp-tab {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: #334155; padding: 3px 6px; font-size: 0.62rem;
+    cursor: pointer; font-family: 'Oxanium', monospace; transition: all 0.15s;
+  }
+  .rp-tab.active { border-bottom-color: #0ea5e9; color: #0ea5e9; }
+
+  .rp-scroll { flex: 1; overflow-y: auto; padding: 12px 14px; }
+
+  .rp-section-label {
+    font-size: 0.58rem; color: #334155; letter-spacing: 2px; margin-bottom: 8px;
+  }
+
+  .entity-card {
+    background: rgba(0,25,55,0.6);
+    border: 1px solid rgba(0,100,200,0.25);
+    border-radius: 8px; padding: 12px; margin-bottom: 10px;
+  }
+  .entity-row {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 5px; font-size: 0.65rem;
+  }
+  .entity-row .k { color: #334155; font-family: 'IBM Plex Mono', monospace; text-transform: uppercase; }
+  .entity-row .v { color: #e2e8f0; font-family: 'IBM Plex Mono', monospace; }
+
+  .entity-actions { display: flex; gap: 6px; margin-top: 10px; }
+  .entity-action {
+    background: rgba(0,100,200,0.18);
+    border: 1px solid rgba(0,100,200,0.3);
+    color: #38bdf8; border-radius: 4px;
+    padding: 4px 10px; font-size: 0.66rem;
+    cursor: pointer; font-family: 'Oxanium', monospace;
+    transition: background 0.15s;
+  }
+  .entity-action:hover { background: rgba(0,100,200,0.3); }
+
+  .active-layer-item {
+    background: rgba(0,18,40,0.4);
+    border-radius: 6px; padding: 7px 10px;
+    margin-bottom: 7px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .ali-left { display: flex; align-items: center; gap: 7px; }
+  .ali-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .ali-name { font-size: 0.7rem; }
+  .ali-count { font-size: 0.68rem; font-family: 'IBM Plex Mono', monospace; font-weight: 700; }
+
+  .filter-section {
+    background: rgba(0,20,45,0.5);
+    border: 1px solid rgba(0,100,200,0.15);
+    border-radius: 7px; padding: 10px; margin-bottom: 10px;
+  }
+  .filter-title {
+    font-size: 0.68rem; font-weight: 600;
+    margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
+  }
+  .filter-chips { display: flex; gap: 5px; flex-wrap: wrap; }
+  .chip {
+    background: rgba(0,100,200,0.15);
+    border: 1px solid rgba(0,100,200,0.25);
+    color: #38bdf8; padding: 2px 9px;
+    border-radius: 12px; font-size: 0.63rem; cursor: pointer;
+    transition: background 0.15s;
+  }
+  .chip:hover, .chip.active { background: rgba(0,150,255,0.25); border-color: rgba(0,180,255,0.45); }
+
+  .slider-wrap { margin-top: 8px; }
+  .slider-label { font-size: 0.62rem; color: #475569; margin-bottom: 4px; display: flex; justify-content: space-between; }
+  input[type=range] {
+    width: 100%; height: 4px;
+    background: rgba(0,100,200,0.2);
+    border-radius: 2px; outline: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px; height: 12px;
+    border-radius: 50%; background: #0ea5e9;
+    cursor: pointer;
+  }
+
+  .interference-chips { display: flex; gap: 5px; margin-top: 6px; }
+  .i-chip {
+    border: 1px solid; padding: 2px 9px; border-radius: 3px;
+    font-size: 0.62rem; cursor: pointer; transition: all 0.15s;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  .feedback-btn {
+    width: calc(100% - 28px); margin: 10px 14px;
+    background: rgba(0,100,200,0.1);
+    border: 1px solid rgba(0,100,200,0.3);
+    color: #38bdf8; border-radius: 7px; padding: 9px;
+    font-size: 0.7rem; cursor: pointer;
+    font-family: 'Oxanium', monospace;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    flex-shrink: 0;
+  }
+  .feedback-btn:hover { background: rgba(0,100,200,0.2); }
+
+  /* ── BOTTOM BAR ── */
+  #bottom-bar {
+    height: 44px;
+    background: rgba(0,4,12,0.98);
+    border-top: 1px solid rgba(0,100,200,0.15);
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 18px; flex-shrink: 0; z-index: 100;
+  }
+
+  .playback-label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+  .playback-check { width: 12px; height: 12px; accent-color: #0ea5e9; cursor: pointer; }
+
+  .play-btn {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    border: none; font-size: 0.85rem; cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .speed-select {
+    background: rgba(0,18,40,0.8);
+    border: 1px solid rgba(0,100,200,0.2);
+    color: #38bdf8; border-radius: 4px;
+    padding: 2px 8px; font-size: 0.68rem;
+    font-family: 'IBM Plex Mono', monospace; cursor: pointer;
+  }
+
+  .timeline-bar {
+    flex: 1; height: 3px;
+    background: rgba(0,100,200,0.15);
+    border-radius: 2px; position: relative; cursor: pointer;
+  }
+  .timeline-progress {
+    height: 100%; background: #0ea5e9; border-radius: 2px;
+    transition: width 1s linear;
+  }
+  .timeline-handle {
+    position: absolute; right: 0; top: 50%;
+    transform: translate(50%, -50%);
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #0ea5e9; border: 2px solid #fff;
+  }
+
+  .bottom-time {
+    color: rgba(0,150,255,0.45);
+    font-size: 0.63rem;
+    font-family: 'IBM Plex Mono', monospace;
+    white-space: nowrap;
+  }
+
+  .fps-display {
+    font-size: 0.63rem; font-family: 'IBM Plex Mono', monospace;
+  }
+
+  #map-loading {
+    position: absolute; inset: 0;
+    background: rgba(0,8,16,0.97);
+    display: none; /* shown only by launchGlobe() */
+    flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 999;
+    transition: opacity 0.5s;
+    overflow-y: auto;
+    padding: 28px 20px 40px;
+  }
+  #api-registry-screen::-webkit-scrollbar { width: 4px; }
+  #api-registry-screen::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 2px; }
+  .loader-globe {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #1a4a7c, #061830);
+    border: 2px solid rgba(0,150,255,0.4);
+    animation: spin 3s linear infinite;
+    margin-bottom: 20px;
+    box-shadow: 0 0 40px rgba(0,100,200,0.3);
+  }
+  .loader-text { color: #38bdf8; font-size: 0.8rem; letter-spacing: 3px; }
+  .loader-sub { color: #334155; font-size: 0.63rem; margin-top: 6px; font-family: 'IBM Plex Mono'; }
+</style>
+</head>
+<body>
+
+<!-- ── TOP NAV ── -->
+<div id="topnav">
+  <div class="logo">
+    <div class="logo-icon">🌍</div>
+    <div class="logo-text">
+      <div class="main">OPXDR <span style="color:#0ea5e9">GEO</span></div>
+      <div class="sub">GEOSPATIAL INTELLIGENCE</div>
+    </div>
+    <span class="alpha-badge">ALPHA</span>
+  </div>
+
+  <!-- Search -->
+  <div id="search-wrap">
+    <span class="search-icon">🔍</span>
+    <input id="search-input" type="text" placeholder="Search places, addresses, flights..." autocomplete="off">
+    <span id="search-kbd">⌘K</span>
+    <div id="search-dropdown">
+      <!-- Populated dynamically by search engine -->
+      <div id="search-default-content">
+        <div class="search-section-label">🕐 RECENT</div>
+        <div class="search-result" onclick="searchGoTo('Eiffel Tower',48.8584,2.2945,827)"><span class="sr-icon">📍</span><div><div class="sr-name">Eiffel Tower</div><div class="sr-sub">Paris, France</div></div></div>
+        <div class="search-result" onclick="searchGoTo('New York City',40.7128,-74.006,768)"><span class="sr-icon">🏙</span><div><div class="sr-name">New York City</div><div class="sr-sub">Manhattan, United States</div></div></div>
+        <div class="search-result" onclick="searchGoTo('Kremlin Moscow',55.752,37.616,735)"><span class="sr-icon">📍</span><div><div class="sr-name">Kremlin</div><div class="sr-sub">Moscow, Russia</div></div></div>
+        <div class="search-divider"></div>
+        <div class="search-section-label">⚡ QUICK JUMP</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:6px 10px">
+          <div class="search-result" style="border-radius:6px;border:1px solid rgba(0,100,200,0.15)" onclick="searchGoTo('Tokyo',35.6762,139.6503,800)"><span class="sr-icon">🏙</span><div><div class="sr-name" style="font-size:0.7rem">Tokyo</div></div></div>
+          <div class="search-result" style="border-radius:6px;border:1px solid rgba(0,100,200,0.15)" onclick="searchGoTo('Dubai',25.2048,55.2708,900)"><span class="sr-icon">🏙</span><div><div class="sr-name" style="font-size:0.7rem">Dubai</div></div></div>
+          <div class="search-result" style="border-radius:6px;border:1px solid rgba(0,100,200,0.15)" onclick="searchGoTo('London',51.5074,-0.1278,1500)"><span class="sr-icon">🏙</span><div><div class="sr-name" style="font-size:0.7rem">London</div></div></div>
+          <div class="search-result" style="border-radius:6px;border:1px solid rgba(0,100,200,0.15)" onclick="searchGoTo('Gaza City',31.5,34.47,2000)"><span class="sr-icon">⚔️</span><div><div class="sr-name" style="font-size:0.7rem">Gaza</div></div></div>
+        </div>
+      </div>
+      <div id="search-results-content" style="display:none"></div>
+      <div id="search-loading" style="display:none;padding:14px;text-align:center;color:#475569;font-size:0.72rem;font-family:monospace">
+        <span style="animation:pulse 1s infinite">⟳</span> Searching...
+      </div>
+    </div>
+  </div>
+
+  <!-- Coords -->
+  <div id="coords-bar">
+    <div class="coord-item"><div class="label">LAT</div><div id="c-lat">33.9906</div></div>
+    <div class="coord-item"><div class="label">LON</div><div id="c-lon">22.393</div></div>
+    <div class="coord-item"><div class="label">ALT</div><div id="c-alt">14573 km</div></div>
+    <div class="coord-item"><div class="label">HDG</div><div id="c-hdg">360.8°</div></div>
+    <div class="coord-item"><div class="label">PTC</div><div id="c-ptc">-90.0°</div></div>
+    <div class="coord-item"><div class="label">FPS</div><div id="c-fps">60</div></div>
+  </div>
+
+  <!-- Regions -->
+  <div style="display:flex;gap:1px;flex-shrink:0">
+    <button class="region-btn active" onclick="goRegion('Global',0,0,0,1e7)">Global</button>
+    <button class="region-btn" onclick="goRegion('Americas',-15,-75,0,8e6)">Americas</button>
+    <button class="region-btn" onclick="goRegion('Europe',50,10,0,3e6)">Europe</button>
+    <button class="region-btn" onclick="goRegion('MENA',25,40,0,4e6)">MENA</button>
+    <button class="region-btn" onclick="goRegion('Asia',35,100,0,6e6)">Asia</button>
+    <button class="region-btn" onclick="goRegion('Africa',0,20,0,8e6)">Africa</button>
+    <button class="region-btn" onclick="goRegion('Oceania',-25,140,0,5e6)">Oceania</button>
+    <button class="region-btn" onclick="goRegion('Arctic',80,0,0,5e6)">Arctic</button>
+  </div>
+
+  <div class="nav-sep"></div>
+
+  <!-- Time -->
+  <div style="display:flex;gap:1px;flex-shrink:0">
+    <button class="time-btn" onclick="setTime(this,'1h')">1h</button>
+    <button class="time-btn" onclick="setTime(this,'6h')">6h</button>
+    <button class="time-btn active" onclick="setTime(this,'24h')">24h</button>
+    <button class="time-btn" onclick="setTime(this,'48h')">48h</button>
+    <button class="time-btn" onclick="setTime(this,'7d')">7d</button>
+    <button class="live-btn">● LIVE</button>
+  </div>
+
+  <div class="nav-sep"></div>
+
+  <!-- Action buttons -->
+  <div class="nav-actions">
+    <button class="nav-btn nav-btn-keys" onclick="showKeyPrompt(null)">🔑 KEYS</button>
+    <button id="cyber-log-toggle" class="nav-btn nav-btn-threat" onclick="toggleCyberLog()">
+      📟 THREATS <span id="log-nav-count" style="background:rgba(255,45,85,0.3);padding:0 4px;border-radius:2px;font-size:0.52rem;margin-left:2px">0</span>
+    </button>
+  </div>
+</div>
+
+<!-- ── MAIN ── -->
+<div id="main-body">
+
+  <!-- Left panel -->
+  <div id="left-panel">
+    <div class="panel-header">
+      <div class="panel-label">DATA SOURCES</div>
+      <div class="tab-row">
+        <button class="tab-btn active">Data Layers</button>
+        <button class="tab-btn">Imagery</button>
+        <button class="tab-btn">Favorites</button>
+        <button class="tab-btn">Imp</button>
+      </div>
+    </div>
+    <div class="layers-scroll" id="layers-list">
+      <!-- Dynamically generated -->
+    </div>
+  </div>
+
+  <!-- Left collapse -->
+  <button class="collapse-btn" id="left-collapse" onclick="toggleLeft()" style="left:210px">‹</button>
+
+  <!-- Map -->
+  <div id="map">
+    <div id="map-loading">
+      <div class="loader-globe"></div>
+      <div class="loader-text">LOADING GEOSPATIAL DATA</div>
+      <div class="loader-sub">Connecting to photorealistic 3D tiles...</div>
+    </div>
+    <div id="cesiumContainer" style="position:absolute;inset:0;width:100%;height:100%;"></div>
+    <canvas id="overlay-canvas"></canvas>
+    <div class="scanlines"></div>
+
+    <!-- ── CYBER THREAT INTELLIGENCE LOG ── -->
+    <div id="cyber-log-wrap">
+      <div id="cyber-log-header">
+        <span class="clh-badge">⚡ LIVE</span>
+        <span class="clh-title">CYBER THREAT LOG</span>
+        <span class="clh-count" id="log-entry-count">0 events</span>
+        <div class="clh-filters">
+          <span class="clh-filter active" onclick="filterLog('ALL',this)">ALL</span>
+          <span class="clh-filter" onclick="filterLog('webAttackers',this)" style="color:#ff2d55">WEB</span>
+          <span class="clh-filter" onclick="filterLog('ddosAttackers',this)" style="color:#ff9f0a">DDoS</span>
+          <span class="clh-filter" onclick="filterLog('intruders',this)" style="color:#a855f7">APT</span>
+          <span class="clh-filter" onclick="filterLog('scanners',this)" style="color:#06b6d4">SCAN</span>
+          <span class="clh-filter" onclick="filterLog('RMW',this)" style="color:#dc2626">RMW</span>
+          <span class="clh-filter" onclick="filterLog('VUL',this)" style="color:#fbbf24">VUL</span>
+          <span class="clh-filter" onclick="filterLog('IDS',this)" style="color:#ff6b35">IDS</span>
+        </div>
+        <div class="clh-right">
+          <div class="clh-live"></div>
+          <span style="font-size:0.57rem;color:#334155">REAL-TIME</span>
+          <button class="clh-btn" onclick="toggleLogExpand()">⬆ EXPAND</button>
+          <button class="clh-btn" onclick="clearCyberLog()">✕ CLEAR</button>
+          <button class="clh-btn" onclick="exportCyberLog()">⬇ EXPORT</button>
+          <button class="clh-btn" onclick="closeCyberLog()">╳</button>
+        </div>
+      </div>
+      <div id="cyber-log-panel">
+        <div style="text-align:center;padding:20px;color:#1e3a5f;font-size:0.68rem;font-family:'IBM Plex Mono',monospace">
+          Enable a CYBER layer to start logging threat events
+        </div>
+      </div>
+    </div>
+    <div id="conflict-badge" style="display:none">
+      <span style="color:#ff2d55;animation:pulse 1s infinite">●</span>
+      <div>
+        <div style="color:#ff2d55;font-size:0.7rem;font-weight:700">ACTIVE CONFLICTS</div>
+        <div id="conflict-count" style="color:#ff6b6b;font-size:0.63rem">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right collapse -->
+  <button class="collapse-btn" id="right-collapse" onclick="toggleRight()" style="right:270px;border-radius:5px 0 0 5px">›</button>
+
+  <!-- Right panel -->
+  <div id="right-panel">
+    <div class="rp-header">
+      <div class="rp-title">DATA CONFIGURATION</div>
+      <div class="rp-tabs">
+        <button class="rp-tab active">Intel</button>
+        <button class="rp-tab" onclick="switchRPTab(this,'investigations')" style="color:#a855f7">Investigations <span id="invest-badge" style="background:#a855f7;color:#fff;font-size:0.45rem;padding:0 4px;border-radius:6px;margin-left:2px;display:none">0</span></button>
+        <button class="rp-tab" onclick="switchRPTab(this,'filters')">Filters</button>
+        <button class="rp-tab" onclick="switchRPTab(this,'cache')">Cache & Limits</button>
+        <button class="rp-tab" onclick="switchRPTab(this,'config')">Config &</button>
+      </div>
+    </div>
+    <div class="rp-scroll" id="rp-content">
+      <!-- Dynamic -->
+    </div>
+    <button class="feedback-btn">💬 Provide Feedback</button>
+  </div>
+</div>
+
+<!-- ── BOTTOM BAR ── -->
+<div id="bottom-bar">
+  <label class="playback-label">
+    <input type="checkbox" class="playback-check" id="playback-check">
+    <span style="color:#334155;font-size:0.63rem;font-family:monospace">Playback Mode</span>
+  </label>
+  <button class="play-btn" id="play-btn" onclick="togglePlay()" style="background:#0ea5e9;color:#000">▶</button>
+  <select class="speed-select" id="speed-select" onchange="setSpeed(this.value)">
+    <option>0.25×</option><option>0.5×</option>
+    <option selected>1×</option><option>2×</option><option>4×</option>
+  </select>
+  <div class="timeline-bar">
+    <div class="timeline-progress" id="timeline-prog" style="width:50%"></div>
+    <div class="timeline-handle"></div>
+  </div>
+  <div class="bottom-time" id="bottom-time"></div>
+  <div class="fps-display" id="fps-display" style="color:#22c55e">60 FPS</div>
+</div>
+
+<script>
+// ─── API KEY STORE ────────────────────────────────────────────────────────────
+const API_STORE_PREFIX = "opxdr_key_";
+function getApiKey(id){ return localStorage.getItem(API_STORE_PREFIX+id)||""; }
+function saveApiKey(id,val){ if(val.trim()) localStorage.setItem(API_STORE_PREFIX+id,val.trim()); else localStorage.removeItem(API_STORE_PREFIX+id); }
+
+const API_CONFIGS = [
+  {id:"gmaps", required:true, icon:"🗺️", name:"Google Maps API Key", color:"#0ea5e9",
+    desc:"3D photorealistic globe · Search autocomplete · Geocoding",
+    url:"https://console.cloud.google.com/apis/credentials", urlLabel:"console.cloud.google.com",
+    placeholder:"AIzaSy...", free:"Free: 28,000 loads/month",
+    apis:[{name:"Maps JS API",url:"#"},{name:"Map Tiles API",url:"#"},{name:"Places API",url:"#"}]},
+  {id:"n2yo", icon:"🛰", name:"N2YO — Live Satellite Tracking", color:"#00e5ff",
+    desc:"Real-time lat/lng/alt for 275+ satellites", url:"https://www.n2yo.com/api/",
+    urlLabel:"n2yo.com/api", placeholder:"n2yo-api-key...", free:"Free: 1,000 req/hour"},
+  {id:"acled", icon:"⚔️", name:"ACLED — Conflict Data", color:"#ff2d55",
+    desc:"Live conflict events with coordinates &amp; fatalities",
+    url:"https://developer.acleddata.com/", urlLabel:"developer.acleddata.com",
+    placeholder:"acled-key:email@domain.com", free:"Free for researchers"},
+  {id:"opensky", icon:"✈️", name:"OpenSky — Live Aircraft", color:"#64d2ff",
+    desc:"Real-time ADS-B for all aircraft globally",
+    url:"https://opensky-network.org/register", urlLabel:"opensky-network.org",
+    placeholder:"opensky-username:password", free:"Free: 400 credits/day"},
+  {id:"aisstream", icon:"🚢", name:"AIS Stream — Maritime", color:"#30d158",
+    desc:"Real-time WebSocket feed of global vessel positions",
+    url:"https://aisstream.io/", urlLabel:"aisstream.io",
+    placeholder:"aisstream-api-key...", free:"Free unlimited read"},
+  {id:"windy_webcams", icon:"📸", name:"Windy Webcams", color:"#a78bfa",
+    desc:"50,000+ live cameras with coordinates",
+    url:"https://api.windy.com/webcams/docs", urlLabel:"api.windy.com/webcams",
+    placeholder:"windy-webcams-key...", free:"Free: 1,000 calls/day"},
+  {id:"nasa_firms", icon:"🔥", name:"NASA FIRMS — Wildfire", color:"#ff6b35",
+    desc:"MODIS+VIIRS satellite fire detection, hourly updates",
+    url:"https://firms.modaps.eosdis.nasa.gov/api/map_key/", urlLabel:"firms.modaps.eosdis.nasa.gov",
+    placeholder:"nasa-firms-map-key...", free:"Free — instant approval"},
+  {id:"alientvault", icon:"💻", name:"AlienVault OTX — Cyber Intel", color:"#06b6d4",
+    desc:"Open threat exchange: malicious IPs, IOCs with geo",
+    url:"https://otx.alienvault.com/api/", urlLabel:"otx.alienvault.com",
+    placeholder:"otx-api-key...", free:"Free account"},
+  {id:"shodan", icon:"🔍", name:"Shodan — Exposed Devices", color:"#f59e0b",
+    desc:"Internet-connected devices mapped globally",
+    url:"https://account.shodan.io/register", urlLabel:"account.shodan.io",
+    placeholder:"shodan-api-key...", free:"Free: 100 results/query"},
+  {id:"spacelaunch", icon:"🚀", name:"Launch Library 2", color:"#a855f7",
+    desc:"Upcoming rocket launches with pad coordinates",
+    url:"https://thespacedevs.com/llapi", urlLabel:"thespacedevs.com/llapi",
+    placeholder:"(optional — no key needed)", free:"Free: 15 req/hour"},
+  {id:"openweather", icon:"🌤", name:"OpenWeatherMap", color:"#38bdf8",
+    desc:"Current weather, radar, wind layers",
+    url:"https://home.openweathermap.org/users/sign_up", urlLabel:"openweathermap.org",
+    placeholder:"openweather-api-key...", free:"Free: 60 calls/min"},
+];
+
+const FREE_SOURCES = [
+  {icon:"🌍",name:"USGS Earthquakes",desc:"M2.5+ global real-time",url:"https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson"},
+  {icon:"📡",name:"GPSJam.org",desc:"Daily GPS jamming zones",url:"https://gpsjam.org/"},
+  {icon:"🛰",name:"CelesTrak",desc:"TLE data for all satellites",url:"https://celestrak.org/SOCRATES/"},
+  {icon:"🌋",name:"Smithsonian GVP",desc:"Global volcano activity",url:"https://volcano.si.edu/"},
+  {icon:"🔥",name:"GWIS Wildfire",desc:"Global wildfire GeoJSON",url:"https://gwis.jrc.ec.europa.eu/"},
+  {icon:"⚓",name:"World Port Index",desc:"Complete port database",url:"https://msi.nga.mil/Publications/WPI"},
+  {icon:"🔌",name:"TeleGeography Cables",desc:"58 submarine cables — hardcoded, no key",url:"https://www.submarinecablemap.com/"},
+  {icon:"🏛",name:"OSM Overpass",desc:"Bases, embassies, ports",url:"https://overpass-api.de/"},
+  {icon:"⚔️",name:"GDELT Project",desc:"Real-time conflict events",url:"https://api.gdeltproject.org/"},
+  {icon:"🏭",name:"IAEA PRIS",desc:"Nuclear reactors worldwide",url:"https://pris.iaea.org/pris/"},
+  {icon:"☠️",name:"CISA KEV Feed",desc:"Known exploited vulnerabilities",url:"https://www.cisa.gov/known-exploited-vulnerabilities-catalog"},
+];
+
+// ─── LAYER DEFINITIONS ────────────────────────────────────────────────────────
+const LAYERS = [
+  {id:"satellites",    name:"Satellites",        icon:"🛰",  group:"SPACE",      color:"#00e5ff", on:true,  count:275, desc:"Satellite tracking..."},
+  {id:"gpsJamming",    name:"GPS Jamming",        icon:"📡", group:"SIGNALS",    color:"#ff6b35", on:true,  count:168, desc:"GPS/GNSS interference..."},
+  {id:"conflictEvents",name:"Iran War Live",       icon:"⚔️",  group:"CONFLICT",  color:"#ff2d55", on:true,  count:338, desc:"Live OSINT tracking..."},
+  {id:"airDefense",    name:"Air Defense Zones",  icon:"🛡",  group:"CONFLICT",   color:"#ff9f0a", on:false, count:24,  desc:"Air defense boundaries..."},
+  {id:"conflictZones", name:"Conflict Zones",     icon:"🔴", group:"CONFLICT",    color:"#ff453a", on:false, count:0,   desc:"Active conflict zones..."},
+  {id:"civilUnrest",   name:"Civil Unrest",        icon:"✊", group:"CONFLICT",   color:"#ff9f0a", on:false, count:0,   desc:"Global protest tracking..."},
+  {id:"nuclearFacility",name:"Nuclear Facilities", icon:"☢️", group:"INFRA",      color:"#34c759", on:false, count:48,  desc:"Nuclear power + weapons..."},
+  {id:"undersea",      name:"Undersea Cables",     icon:"🔌", group:"INFRA",      color:"#7c3aed", on:false, count:58,  desc:"58 submarine cables — TeleGeography"},
+  {id:"airports",      name:"Airports",            icon:"✈️", group:"AVIATION",   color:"#64d2ff", on:false, count:0,   desc:"Worldwide airports..."},
+  {id:"militaryAv",    name:"Military Aviation",   icon:"✈️", group:"AVIATION",   color:"#38bdf8", on:false, count:0,   desc:"Military aircraft..."},
+  {id:"maritime",      name:"Maritime",            icon:"🚢", group:"MARITIME",   color:"#30d158", on:false, count:0,   desc:"AI vessel tracking..."},
+  {id:"wildfire",      name:"Wildfire",            icon:"🔥", group:"DISASTERS",  color:"#ff6b35", on:false, count:0,   desc:"Active fire detection..."},
+  {id:"earthquakes",   name:"Earthquakes",         icon:"🌍", group:"DISASTERS",  color:"#ff9f0a", on:false, count:0,   desc:"Seismic activity..."},
+  {id:"milBases",      name:"Military Bases",      icon:"🏴", group:"MILITARY",   color:"#5ac8fa", on:false, count:0,   desc:"Military installations..."},
+  {id:"embassies",     name:"Embassies",           icon:"🏛", group:"CUSTOM",     color:"#a855f7", on:false, count:0,   desc:"Diplomatic missions..."},
+  {id:"lighthouses",   name:"Lighthouses",         icon:"💡", group:"MARITIME",   color:"#fcd34d", on:false, count:0,   desc:"Coastal beacons..."},
+  {id:"seaports",      name:"Seaports",            icon:"⚓", group:"MARITIME",   color:"#0ea5e9", on:false, count:0,   desc:"Commercial ports..."},
+  {id:"volcanoes",     name:"Volcanoes",           icon:"🌋", group:"DISASTERS",  color:"#f97316", on:false, count:0,   desc:"Active volcanoes..."},
+  {id:"spaceports",    name:"Spaceports",          icon:"🚀", group:"SPACE",      color:"#a78bfa", on:false, count:0,   desc:"Space launch facilities..."},
+  {id:"cyberThreats",  name:"Cyber Threats (OSINT)",icon:"💻",group:"CYBER", color:"#06b6d4", on:false, count:0,   desc:"Cyber attack traffic..."},
+  {id:"webAttackers",  name:"Web Attackers",       icon:"🌐", group:"CYBER", color:"#ff2d55", on:false, count:0,   desc:"Web attack traffic..."},
+  {id:"ddosAttackers", name:"DDoS Attackers",      icon:"⚡", group:"CYBER", color:"#ff9f0a", on:false, count:0,   desc:"Volumetric floods..."},
+  {id:"intruders",     name:"Intruders",            icon:"🥷", group:"CYBER", color:"#a855f7", on:false, count:0,   desc:"Network intrusions..."},
+  {id:"scanners",      name:"Scanners",             icon:"🔭", group:"CYBER", color:"#06b6d4", on:false, count:0,   desc:"Port/vuln scanning..."},
+  {id:"anonymizers",   name:"Anonymizers",          icon:"🎭", group:"CYBER", color:"#64748b", on:false, count:0,   desc:"Tor exits, VPN, proxies..."},
+  {id:"cyberOAS",      name:"OAS — On-Access Scan", icon:"🦠", group:"CYBER", color:"#22c55e", on:false, count:0,   desc:"Malware on file access..."},
+  {id:"cyberODS",      name:"ODS — On-Demand Scan", icon:"🔬", group:"CYBER", color:"#84cc16", on:false, count:0,   desc:"Manual scan detections..."},
+  {id:"cyberMAV",      name:"MAV — Mail Anti-Virus",icon:"📧", group:"CYBER", color:"#f59e0b", on:false, count:0,   desc:"Email malware..."},
+  {id:"cyberWAV",      name:"WAV — Web Anti-Virus", icon:"🌐", group:"CYBER", color:"#ef4444", on:false, count:0,   desc:"Drive-by downloads..."},
+  {id:"cyberIDS",      name:"IDS — Intrusion Detect",icon:"🚨",group:"CYBER", color:"#ff6b35", on:false, count:0,   desc:"Network attack detection..."},
+  {id:"cyberVUL",      name:"VUL — Vulnerability",  icon:"🩹", group:"CYBER", color:"#fbbf24", on:false, count:0,   desc:"Vulnerability scans..."},
+  {id:"cyberKAS",      name:"KAS — Anti-Spam",      icon:"📨", group:"CYBER", color:"#38bdf8", on:false, count:0,   desc:"Suspicious email..."},
+  {id:"cyberRMW",      name:"RMW — Ransomware",     icon:"🔒", group:"CYBER", color:"#dc2626", on:false, count:0,   desc:"Ransomware detection..."},
+  {id:"shodanDevices", name:"Shodan Devices",        icon:"🔍", group:"CYBER", color:"#f59e0b", on:false, count:0,   desc:"Exposed devices..."},
+  {id:"windyWebcams",  name:"Windy Webcams",          icon:"📷", group:"CYBER", color:"#a78bfa", on:false, count:0,   desc:"50K+ live cameras..."},
+];
+
+const layerState = {};
+LAYERS.forEach(l => layerState[l.id] = l.on);
+
+// ─── STATIC DATA ──────────────────────────────────────────────────────────────
+const GPS_ZONES=[
+  {lat:32.0,lng:35.0,r:280,level:"high",region:"Israel/Lebanon"},
+  {lat:49.0,lng:32.0,r:380,level:"high",region:"Ukraine"},
+  {lat:55.7,lng:37.6,r:220,level:"medium",region:"Moscow"},
+  {lat:35.7,lng:51.4,r:180,level:"medium",region:"Tehran"},
+  {lat:36.2,lng:37.1,r:140,level:"high",region:"Syria"},
+];
+const NUCLEAR=[
+  {lat:31.9,lng:35.1,name:"Dimona",country:"Israel",type:"suspected"},
+  {lat:32.8,lng:48.2,name:"Bushehr NPP",country:"Iran",type:"power"},
+  {lat:56.8,lng:54.1,name:"Mayak",country:"Russia",type:"processing"},
+  {lat:51.2,lng:30.2,name:"Chernobyl",country:"Ukraine",type:"decommissioned"},
+  {lat:39.8,lng:125.7,name:"Yongbyon",country:"DPRK",type:"weapons"},
+];
+const AIR_DEFENSE=[
+  {lat:32.0,lng:35.0,r:180,name:"Iron Dome Cluster",country:"Israel"},
+  {lat:55.7,lng:37.6,r:450,name:"S-400 Moscow",country:"Russia"},
+  {lat:35.7,lng:51.4,r:280,name:"S-300 Tehran",country:"Iran"},
+];
+
+// ─── CONFLICT EVENTS ──────────────────────────────────────────────────────────
+let conflictEvents = [];
+async function loadConflicts(){
+  const zones=[
+    {lat:48.3,lng:31.2,r:"Ukraine",n:15},
+    {lat:32.0,lng:35.0,r:"Gaza/Israel",n:10},
+    {lat:36.2,lng:37.1,r:"Syria",n:6},
+    {lat:15.3,lng:44.1,r:"Yemen",n:5},
+    {lat:13.5,lng:23.3,r:"Sudan",n:3},
+  ];
+  conflictEvents=[];
+  zones.forEach(z=>{
+    for(let i=0;i<z.n;i++){
+      conflictEvents.push({
+        lat:z.lat+(Math.random()-0.5)*2.5,
+        lng:z.lng+(Math.random()-0.5)*2.5,
+        region:z.r,
+        type:["missile_strike","air_strike","artillery"][Math.floor(Math.random()*3)],
+        severity:Math.random()>0.3?"high":"critical",
+      });
+    }
+  });
+  document.getElementById("conflict-count").textContent=`${conflictEvents.length} events · ${conflictEvents.filter(e=>e.severity==="critical").length} critical`;
+  document.getElementById("conflict-badge").style.display="flex";
+  if(viewer) addCesiumLayers();
+}
+
+let map = null;
+let markers = [], circles = [], polylines = [];
+
+// ─── NAVIGATION ───────────────────────────────────────────────────────────────
+let currentRegion = "Global";
+function goRegion(name,lat,lng,tilt,range){
+  currentRegion=name;
+  document.querySelectorAll(".region-btn").forEach(b=>b.classList.toggle("active",b.textContent===name));
+  if(!viewer)return;
+  const altM=range?Math.min(range*1.2,20000000):15000000;
+  viewer.camera.flyTo({
+    destination:Cesium.Cartesian3.fromDegrees(lng||0,lat||0,altM),
+    orientation:{heading:Cesium.Math.toRadians(0),pitch:Cesium.Math.toRadians(-90),roll:0},
+    duration:2.5,easingFunction:Cesium.EasingFunction.CUBIC_IN_OUT
+  });
+}
+function setTime(btn,t){
+  document.querySelectorAll(".time-btn").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+}
+
+// ─── SEARCH ENGINE ────────────────────────────────────────────────────────────
+const PLACE_DB = [
+  {n:"New York City",s:"Manhattan, US",icon:"🏙",lat:40.7128,lng:-74.006,alt:768,cat:"city"},
+  {n:"London",s:"UK",icon:"🏙",lat:51.5074,lng:-0.1278,alt:1200,cat:"city"},
+  {n:"Paris",s:"France",icon:"🏙",lat:48.8566,lng:2.3522,alt:1500,cat:"city"},
+  {n:"Tokyo",s:"Japan",icon:"🏙",lat:35.6762,lng:139.6503,alt:800,cat:"city"},
+  {n:"Dubai",s:"UAE",icon:"🏙",lat:25.2048,lng:55.2708,alt:900,cat:"city"},
+  {n:"Beijing",s:"China",icon:"🏙",lat:39.9042,lng:116.4074,alt:1000,cat:"city"},
+  {n:"Moscow",s:"Russia",icon:"🏙",lat:55.7558,lng:37.6176,alt:1500,cat:"city"},
+  {n:"Istanbul",s:"Turkey",icon:"🏙",lat:41.0082,lng:28.9784,alt:1200,cat:"city"},
+  {n:"Singapore",s:"Singapore",icon:"🏙",lat:1.3521,lng:103.8198,alt:700,cat:"city"},
+  {n:"Sydney",s:"Australia",icon:"🏙",lat:-33.8688,lng:151.2093,alt:1000,cat:"city"},
+  {n:"Los Angeles",s:"California, US",icon:"🏙",lat:34.0522,lng:-118.2437,alt:900,cat:"city"},
+  {n:"Chicago",s:"Illinois, US",icon:"🏙",lat:41.8781,lng:-87.6298,alt:800,cat:"city"},
+  {n:"Sao Paulo",s:"Brazil",icon:"🏙",lat:-23.5505,lng:-46.6333,alt:1200,cat:"city"},
+  {n:"Mumbai",s:"India",icon:"🏙",lat:19.0760,lng:72.8777,alt:900,cat:"city"},
+  {n:"Cairo",s:"Egypt",icon:"🏙",lat:30.0444,lng:31.2357,alt:1500,cat:"city"},
+  {n:"Riyadh",s:"Saudi Arabia",icon:"🏙",lat:24.7136,lng:46.6753,alt:1200,cat:"city"},
+  {n:"Tel Aviv",s:"Israel",icon:"🏙",lat:32.0853,lng:34.7818,alt:800,cat:"city"},
+  {n:"Tehran",s:"Iran",icon:"🏙",lat:35.6892,lng:51.3890,alt:1500,cat:"city"},
+  {n:"Kyiv",s:"Ukraine",icon:"🏙",lat:50.4501,lng:30.5234,alt:5000,cat:"city"},
+  {n:"Berlin",s:"Germany",icon:"🏙",lat:52.5200,lng:13.4050,alt:1000,cat:"city"},
+  {n:"Seoul",s:"South Korea",icon:"🏙",lat:37.5665,lng:126.9780,alt:900,cat:"city"},
+  {n:"Bangkok",s:"Thailand",icon:"🏙",lat:13.7563,lng:100.5018,alt:1200,cat:"city"},
+  {n:"Nairobi",s:"Kenya",icon:"🏙",lat:-1.2921,lng:36.8219,alt:2000,cat:"city"},
+  {n:"Buenos Aires",s:"Argentina",icon:"🏙",lat:-34.6037,lng:-58.3816,alt:1200,cat:"city"},
+  {n:"Mexico City",s:"Mexico",icon:"🏙",lat:19.4326,lng:-99.1332,alt:1200,cat:"city"},
+  {n:"Toronto",s:"Canada",icon:"🏙",lat:43.6532,lng:-79.3832,alt:1000,cat:"city"},
+  {n:"Eiffel Tower",s:"Paris, France",icon:"🗼",lat:48.8584,lng:2.2945,alt:500,cat:"landmark"},
+  {n:"Kremlin",s:"Moscow, Russia",icon:"🏰",lat:55.7520,lng:37.6175,alt:600,cat:"landmark"},
+  {n:"Burj Khalifa",s:"Dubai, UAE",icon:"🏙",lat:25.1972,lng:55.2744,alt:400,cat:"landmark"},
+  {n:"Taj Mahal",s:"Agra, India",icon:"🕌",lat:27.1751,lng:78.0421,alt:400,cat:"landmark"},
+  {n:"Gaza City",s:"Gaza Strip",icon:"⚔️",lat:31.5017,lng:34.4668,alt:2000,cat:"conflict"},
+  {n:"Beirut",s:"Lebanon",icon:"⚔️",lat:33.8938,lng:35.5018,alt:3000,cat:"conflict"},
+  {n:"Strait of Hormuz",s:"Iran/Oman",icon:"🚢",lat:26.5667,lng:56.2500,alt:50000,cat:"conflict"},
+  {n:"Taiwan Strait",s:"Taiwan/China",icon:"⚔️",lat:24.5,lng:120.5,alt:80000,cat:"conflict"},
+  {n:"South China Sea",s:"Disputed",icon:"🚢",lat:12.0,lng:114.0,alt:200000,cat:"conflict"},
+  {n:"Bushehr NPP",s:"Iran",icon:"☢️",lat:28.8346,lng:50.8861,alt:2000,cat:"nuclear"},
+  {n:"Natanz",s:"Iran",icon:"☢️",lat:33.7224,lng:51.7268,alt:2000,cat:"nuclear"},
+  {n:"Yongbyon",s:"North Korea",icon:"☢️",lat:39.7908,lng:125.7471,alt:2000,cat:"nuclear"},
+  {n:"Zaporizhzhia NPP",s:"Ukraine",icon:"☢️",lat:47.5061,lng:34.5844,alt:2000,cat:"nuclear"},
+  {n:"Fukushima",s:"Japan",icon:"☢️",lat:37.4215,lng:141.0328,alt:1500,cat:"nuclear"},
+  {n:"Pentagon",s:"Virginia, US",icon:"🏴",lat:38.8719,lng:-77.0563,alt:600,cat:"military"},
+  {n:"ISS (ZARYA)",s:"Alt: 408km",icon:"🛰",lat:51.6,lng:-120.3,alt:408000,cat:"satellite"},
+  {n:"Mount Everest",s:"8,848m",icon:"⛰",lat:27.9881,lng:86.9250,alt:5000,cat:"geo"},
+  {n:"Arctic Circle",s:"North Pole",icon:"❄️",lat:90.0,lng:0.0,alt:5000000,cat:"geo"},
+  {n:"Antarctica",s:"South Pole",icon:"🧊",lat:-90.0,lng:0.0,alt:5000000,cat:"geo"},
+];
+
+function searchGoTo(name,lat,lng,altM){
+  document.getElementById("search-dropdown").classList.remove("open");
+  document.getElementById("search-input").value=name;
+  document.getElementById("search-input").blur();
+  if(!viewer||!Cesium) return;
+  let targetAlt=altM>=100000?altM:altM>=20000?altM:altM>=3000?altM:altM+200;
+  let pitch=altM>=100000?-90:altM>=20000?-85:altM>=3000?-70:-40;
+  viewer.camera.flyTo({
+    destination:Cesium.Cartesian3.fromDegrees(lng,lat,targetAlt),
+    orientation:{heading:Cesium.Math.toRadians(20),pitch:Cesium.Math.toRadians(pitch),roll:0},
+    duration:2.5,easingFunction:Cesium.EasingFunction.CUBIC_IN_OUT
+  });
+}
+
+// ─── LAYER PANEL ──────────────────────────────────────────────────────────────
+const ALL_CYBER_IDS = [
+  "webAttackers","ddosAttackers","intruders","scanners","anonymizers",
+  "cyberOAS","cyberODS","cyberMAV","cyberWAV","cyberIDS",
+  "cyberVUL","cyberKAS","cyberRMW","shodanDevices","cyberThreats"
+];
+let _cyberMasterOn = false;
+let _cyberSubOpen = false;
+
+function setCyberMaster(on) {
+  _cyberMasterOn = on;
+  ALL_CYBER_IDS.forEach(id => { layerState[id] = on; });
+  const mt = document.getElementById("cyber-master-toggle");
+  if(mt) {
+    mt.style.background = on ? "#06b6d4" : "#1e293b";
+    mt.style.borderColor = on ? "#06b6d4" : "#334155";
+    mt.querySelector(".toggle-knob").style.left = (on ? 15 : 2) + "px";
+  }
+  const ml = document.getElementById("cyber-master-label");
+  if(ml) ml.style.color = on ? "#e2e8f0" : "#475569";
+  ALL_CYBER_IDS.forEach(id => {
+    const tog = document.getElementById("tog-"+id);
+    const layer = LAYERS.find(l=>l.id===id);
+    if(!layer) return;
+    const bg = on ? layer.color : "#1e293b";
+    if(tog) { tog.style.background=bg; tog.style.borderColor=bg; tog.querySelector(".toggle-knob").style.left=(on?11:2)+"px"; }
+    const ln = document.getElementById("ln-"+id);
+    if(ln) ln.style.color = on ? "#e2e8f0" : "#475569";
+  });
+  if(on) {
+    if(CYBER.events.length===0) CYBER.loadAll();
+    else if(viewer&&Cesium) CYBER.renderArcs(Cesium, layerState);
+    const wrap = document.getElementById("cyber-log-wrap");
+    if(wrap) wrap.classList.add("visible");
+    const btn = document.getElementById("cyber-log-toggle");
+    if(btn) btn.style.display = "inline-flex";
+  } else {
+    if(CYBER._animTimer){ clearInterval(CYBER._animTimer); CYBER._animTimer=null; }
+    if(typeof CYBER._fullRemove==="function") CYBER._fullRemove();
+    const wrap = document.getElementById("cyber-log-wrap");
+    if(wrap) wrap.classList.remove("visible");
+  }
+  buildRightPanel();
+}
+
+function toggleCyberSubList() {
+  _cyberSubOpen = !_cyberSubOpen;
+  const el = document.getElementById("cyber-sub-list");
+  const arrow = document.getElementById("cyber-sub-arrow");
+  if(el) el.style.display = _cyberSubOpen ? "block" : "none";
+  if(arrow) arrow.style.transform = _cyberSubOpen ? "rotate(180deg)" : "";
+}
+
+function buildLayersList(){
+  const container = document.getElementById("layers-list");
+  const groups = {};
+  LAYERS.forEach(l => { if(!groups[l.group]) groups[l.group] = []; groups[l.group].push(l); });
+  let html = "";
+  Object.entries(groups).forEach(([grp, items]) => {
+    if(grp === "CYBER") {
+      const anyOn = ALL_CYBER_IDS.some(id=>layerState[id]);
+      const totalEvt = CYBER.events.length;
+      const critEvt = CYBER.events.filter(e=>e.severity==="critical").length;
+      html += `<div class="layer-group-label" style="display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none" onclick="toggleCyberSubList()"><span>CYBER INTEL</span><span id="cyber-sub-arrow" style="font-size:0.5rem;color:#1e3a5f;transition:transform 0.2s;margin-left:auto">${_cyberSubOpen?"▲":"▼"}</span></div><div class="cyber-master-row${anyOn?" active":""}" onclick="setCyberMaster(!_cyberMasterOn)"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:1rem">⚡</span><div style="flex:1;min-width:0"><div id="cyber-master-label" style="font-size:0.72rem;font-weight:700;color:${anyOn?"#e2e8f0":"#475569"};letter-spacing:0.5px">ALL CYBER FEEDS</div><div style="font-size:0.57rem;color:#334155;margin-top:1px">14 attack types · Live arc animation</div>${totalEvt>0?`<div style="font-size:0.56rem;color:#06b6d4;margin-top:2px">${totalEvt} events · <span style="color:#ff2d55">${critEvt} critical</span></div>`:""}</div><div class="toggle" id="cyber-master-toggle" style="background:${anyOn?"#06b6d4":"#1e293b"};border-color:${anyOn?"#06b6d4":"#334155"}"><div class="toggle-knob" style="left:${anyOn?15:2}px"></div></div></div></div><div id="cyber-sub-list" style="display:${_cyberSubOpen?"block":"none"};border-left:2px solid rgba(6,182,212,0.12);margin-left:8px;padding-left:4px;margin-bottom:4px">`;
+      items.forEach(l=>{
+        const on = layerState[l.id];
+        const bg = on ? l.color : "#1e293b";
+        html += `<div class="layer-row" onclick="toggleLayer('${l.id}')" style="padding:3px 2px"><span class="layer-icon" style="font-size:0.7rem">${l.icon}</span><div class="layer-info"><div class="layer-name" id="ln-${l.id}" style="color:${on?"#e2e8f0":"#475569"};font-size:0.64rem">${l.name}</div><div id="lc-${l.id}" class="layer-count" style="color:${on?"#e2e8f0":"#1e3a5f"}">${""}</div></div><div class="toggle" id="tog-${l.id}" style="background:${bg};border-color:${bg};width:24px;height:13px"><div class="toggle-knob" style="left:${on?11:2}px;width:9px;height:9px"></div></div></div>`;
+      });
+      html += `</div>`; return;
+    }
+    html += `<div class="layer-group-label">${grp}</div>`;
+    items.forEach(l=>{
+      const on = layerState[l.id];
+      const bg = on ? l.color : "#1e293b";
+      html += `<div class="layer-row" onclick="toggleLayer('${l.id}')"><span class="layer-icon">${l.icon}</span><div class="layer-info"><div class="layer-name" id="ln-${l.id}" style="color:${on?"#e2e8f0":"#475569"}">${l.name}</div>${l.count>0?`<div class="layer-count" id="lc-${l.id}" style="color:${on?l.color:"#334155"}">${l.count}</div>`:""}<div style="color:#334155;font-size:0.59rem">${l.desc}</div></div><div class="toggle" id="tog-${l.id}" style="background:${bg};border-color:${bg}"><div class="toggle-knob" style="left:${on?16:2}px"></div></div></div>`;
+    });
+  });
+  html += `<div class="discord-btn">💬 Join our Discord</div>`;
+  container.innerHTML = html;
+}
+
+function toggleLayer(id){
+  layerState[id]=!layerState[id];
+  const on=layerState[id];
+  const layer=LAYERS.find(l=>l.id===id);
+  if(!layer)return;
+  const CYBER_IDS=["webAttackers","ddosAttackers","intruders","scanners","anonymizers","cyberOAS","cyberODS","cyberMAV","cyberWAV","cyberIDS","cyberVUL","cyberKAS","cyberRMW","shodanDevices","windyWebcams","cyberThreats"];
+  const isCyber=CYBER_IDS.includes(id);
+  if(on&&isCyber&&CYBER.events.length===0) CYBER.loadAll();
+  const tog=document.getElementById("tog-"+id);
+  const bg=on?layer.color:"#1e293b";
+  if(tog){tog.style.background=bg;tog.style.borderColor=bg;tog.querySelector(".toggle-knob").style.left=(on?16:2)+"px";}
+  const ln=document.getElementById("ln-"+id);
+  if(ln)ln.style.color=on?"#e2e8f0":"#475569";
+  const lc=document.getElementById("lc-"+id);
+  if(lc)lc.style.color=on?layer.color:"#334155";
+  if(isCyber&&CYBER.events.length>0&&viewer&&Cesium){
+    const anyCyber=CYBER_IDS.some(cid=>layerState[cid]);
+    if(anyCyber) CYBER.renderArcs(Cesium, layerState);
+    else { if(CYBER._animTimer){clearInterval(CYBER._animTimer);CYBER._animTimer=null;} CYBER._fullRemove(); }
+    buildRightPanel(); return;
+  }
+  redrawMarkers();
+  buildRightPanel();
+}
+
+function buildRightPanel(){
+  const active=LAYERS.filter(l=>layerState[l.id]);
+  let html=`<div class="rp-section-label">INTELLIGENCE</div><div style="background:rgba(0,18,40,0.4);border:1px solid rgba(0,100,200,0.1);border-radius:8px;padding:10px;margin-bottom:10px;text-align:center;color:#1e3a5f;font-size:0.7rem">Click any marker to inspect entity</div><div class="rp-section-label" style="margin-top:8px">ACTIVE LAYERS</div>`;
+  active.forEach(l=>{html+=`<div class="active-layer-item"><div class="ali-left"><div class="ali-dot" style="background:${l.color}"></div><span class="ali-name">${l.name}</span></div><span class="ali-count" style="color:${l.color}">${l.count||"—"}</span></div>`;});
+  if(layerState.conflictEvents){
+    html+=`<div style="margin-top:10px"><div class="rp-section-label">STRIKE BREAKDOWN</div>`;
+    [["Missile Strike","#ff2d55",40],["Air Strike","#ff9f0a",35],["Artillery","#ffcc00",25]].forEach(([t,c,p])=>{
+      html+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div style="width:8px;height:8px;border-radius:2px;background:${c};flex-shrink:0"></div><div style="flex:1;height:3px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden"><div style="width:${p}%;height:100%;background:${c}"></div></div><span style="color:${c};font-size:0.63rem;font-family:monospace;min-width:24px">${Math.round(conflictEvents.length*p/100)}</span></div>`;
+    }); html+=`</div>`;
+  }
+  if(layerState.gpsJamming){
+    html+=`<div style="margin-top:12px"><div class="rp-section-label">GPS JAMMING ZONES</div>`;
+    GPS_ZONES.forEach(z=>{html+=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px"><span style="color:#94a3b8;font-size:0.66rem">${z.region}</span><span style="background:${z.level==="high"?"rgba(255,80,20,0.2)":"rgba(255,160,50,0.2)"};border:1px solid ${z.level==="high"?"rgba(255,80,20,0.4)":"rgba(255,160,50,0.4)"};color:${z.level==="high"?"#ff5014":"#ffa032"};padding:1px 7px;border-radius:3px;font-size:0.6rem;font-family:monospace;text-transform:uppercase">${z.level}</span></div>`;});
+    html+=`</div>`;
+  }
+  const hasCyber=["webAttackers","ddosAttackers","intruders","scanners","anonymizers","cyberOAS","cyberODS","cyberMAV","cyberWAV","cyberIDS","cyberVUL","cyberKAS","cyberRMW","shodanDevices","windyWebcams","cyberThreats"].some(id=>layerState[id]);
+  if(hasCyber){html+=`<div id="cyber-stats-panel" style="margin-top:12px;background:rgba(6,182,212,0.05);border:1px solid rgba(6,182,212,0.15);border-radius:8px;padding:10px"><div style="color:#334155;font-size:0.6rem;letter-spacing:2px;font-family:'IBM Plex Mono',monospace">Loading...</div></div>`;setTimeout(()=>CYBER.updateRightPanelStats(),100);}
+  document.getElementById("rp-content").innerHTML=html;
+}
+
+function switchRPTab(btn,tab){
+  document.querySelectorAll(".rp-tab").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  if(tab==="filters"){document.getElementById("rp-content").innerHTML=`<div class="rp-section-label">ENTITY FILTERS</div><div class="filter-section"><div class="filter-title" style="color:#00e5ff">🛰 Satellites</div><div class="filter-chips"><div class="chip active">Space Stations</div><div class="chip active">Brightest Satellites</div></div></div><div class="filter-section"><div class="filter-title" style="color:#ff2d55">⚔️ Iran War Live</div></div>`;}
+  else if(tab==="investigations"){renderInvestigations();}
+  else { buildRightPanel(); }
+}
+
+let leftOpen=true, rightOpen=true;
+function toggleLeft(){leftOpen=!leftOpen;document.getElementById("left-panel").classList.toggle("collapsed",!leftOpen);const btn=document.getElementById("left-collapse");btn.textContent=leftOpen?"‹":"›";btn.style.left=leftOpen?"210px":"0px";}
+function toggleRight(){rightOpen=!rightOpen;document.getElementById("right-panel").classList.toggle("collapsed",!rightOpen);const btn=document.getElementById("right-collapse");btn.textContent=rightOpen?"›":"‹";btn.style.right=rightOpen?"270px":"0px";}
+
+function startClock(){function t(){const n=new Date();document.getElementById("bottom-time").textContent=n.toLocaleTimeString("en-GB")+` — ${n.toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"numeric"})}`;const p=(n.getHours()*3600+n.getMinutes()*60+n.getSeconds())/(24*3600)*100;document.getElementById("timeline-prog").style.width=p+"%";}t();setInterval(t,1000);}
+function startFPS(){let f=0,l=performance.now();(function c(){f++;const n=performance.now();if(n-l>=1000){const e=f;f=0;l=n;const el=document.getElementById("fps-display");el.textContent=e+" FPS";el.style.color=e>=50?"#22c55e":e>=30?"#ff9f0a":"#ff2d55";document.getElementById("c-fps").textContent=e;}requestAnimationFrame(c);})();}
+let isPlaying=true;
+function togglePlay(){isPlaying=!isPlaying;document.getElementById("play-btn").textContent=isPlaying?"⏸":"▶";document.getElementById("play-btn").style.background=isPlaying?"#0ea5e9":"rgba(0,100,200,0.3)";document.getElementById("play-btn").style.color=isPlaying?"#000":"#38bdf8";}
+function setSpeed(v){}
+
+function showToast(msg,color="#38bdf8"){const t=document.createElement("div");t.style.cssText=`position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:rgba(0,10,25,0.97);border:1px solid ${color}55;color:${color};padding:10px 18px;border-radius:8px;font-size:0.72rem;font-family:'IBM Plex Mono',monospace;z-index:9999;max-width:520px;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,0.6)`;t.textContent=msg;document.body.appendChild(t);setTimeout(()=>{t.style.transition="opacity 0.5s";t.style.opacity="0";setTimeout(()=>t.remove(),500);},7000);}
+
+function showKeyPrompt(errorMsg){
+  const isRunning=!!viewer;
+  const h=()=>`<div style="width:100%;max-width:660px;animation:fadeIn 0.3s ease;padding-bottom:20px"><div style="text-align:center;margin-bottom:22px"><div style="font-size:3rem;margin-bottom:10px">🗺️</div><div style="color:#38bdf8;font-size:1rem;font-weight:800;letter-spacing:3px;margin-bottom:4px">OPXDR GEO INTEL</div><div style="color:#0ea5e9;font-size:0.68rem;letter-spacing:2px;font-family:'IBM Plex Mono',monospace">CESIUMJS GLOBE · BING SATELLITE · OPTIONAL FEEDS</div></div>${errorMsg?`<div style="background:rgba(255,45,85,0.1);border:1px solid rgba(255,45,85,0.3);border-radius:8px;padding:10px 14px;margin-bottom:14px;color:#ff6b8a;font-size:0.72rem">⚠️ ${errorMsg}</div>`:""}<div style="background:rgba(0,15,35,0.97);border:1px solid rgba(14,165,233,0.45);border-radius:12px;padding:18px;margin-bottom:12px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><span style="font-size:1.3rem">🗺️</span><div style="flex:1"><div style="font-size:0.76rem;font-weight:700;color:#e2e8f0;letter-spacing:1px">GOOGLE MAPS API KEY <span style="background:rgba(100,116,139,0.2);border:1px solid rgba(100,116,139,0.3);color:#64748b;padding:1px 7px;border-radius:3px;font-size:0.59rem;margin-left:6px">OPTIONAL</span></div><div style="font-size:0.62rem;color:#475569;font-family:'IBM Plex Mono',monospace;margin-top:2px">Places search — globe works without this</div></div><a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="background:rgba(14,165,233,0.15);border:1px solid rgba(14,165,233,0.35);color:#0ea5e9;padding:5px 12px;border-radius:5px;font-size:0.63rem;text-decoration:none;font-family:'IBM Plex Mono',monospace;white-space:nowrap;font-weight:700">Get Key →</a></div><div style="position:relative;margin-bottom:10px"><input id="api-key-input" type="password" placeholder="AIzaSy..." value="${getApiKey('gmaps')}" style="width:100%;background:rgba(0,30,60,0.85);border:1px solid rgba(0,100,200,0.3);border-radius:8px;padding:11px 42px 11px 12px;color:#e2e8f0;font-size:0.78rem;font-family:'IBM Plex Mono',monospace;outline:none;box-sizing:border-box" onfocus="this.style.borderColor='rgba(0,200,255,0.6)'" onblur="this.style.borderColor='rgba(0,100,200,0.3)'" onkeydown="if(event.key==='Enter')submitKey()"><button onclick="toggleKeyVis()" id="eye-btn" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#475569;cursor:pointer;font-size:0.9rem;padding:0">👁</button></div><label style="display:flex;align-items:center;gap:7px;margin-bottom:12px;cursor:pointer"><input type="checkbox" id="save-key-check" checked style="accentColor:#0ea5e9;width:13px;height:13px"><span style="color:#475569;font-size:0.66rem;font-family:'IBM Plex Mono',monospace">Remember in this browser</span></label><button onclick="submitKey()" style="width:100%;background:linear-gradient(135deg,#0ea5e9,#0284c7);border:none;border-radius:9px;padding:12px;color:#fff;font-size:0.8rem;font-weight:700;cursor:pointer;font-family:'Oxanium',monospace;letter-spacing:2px;margin-bottom:10px">🌍 SAVE KEYS</button>${isRunning?'<button onclick="document.getElementById(\'key-overlay\')?.remove()" style="background:none;border:none;color:#334155;font-size:0.63rem;cursor:pointer;text-decoration:underline">✕ Close</button>':""}</div><div style="background:rgba(0,8,22,0.97);border:1px solid rgba(0,100,200,0.18);border-radius:12px;overflow:hidden"><div onclick="var b=document.getElementById('opt-body');b.style.display=b.style.display==='none'?'block':'none';this.querySelector('.chev').style.transform=b.style.display==='block'?'rotate(180deg)':'rotate(0deg)'" style="padding:13px 18px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;user-select:none"><div><div style="font-size:0.73rem;font-weight:700;color:#94a3b8;letter-spacing:1px">OPTIONAL API KEYS</div><div style="font-size:0.61rem;color:#334155;font-family:'IBM Plex Mono',monospace;margin-top:2px">Satellites · Aviation · Maritime · Conflict · Wildfire · Cameras · Cyber · Weather</div></div><span class="chev" style="color:#334155;font-size:0.9rem;transition:transform 0.25s">▼</span></div><div id="opt-body" style="display:none">${API_CONFIGS.filter(c=>!c.required).map(cfg=>{const sv=getApiKey(cfg.id);const rgb=cfg.color.startsWith("#")?cfg.color.slice(1).match(/.{2}/g).map(h=>parseInt(h,16)).join(","):"100,200,255";return `<div style="padding:13px 18px;border-bottom:1px solid rgba(0,100,200,0.06)"><div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:8px"><span style="font-size:1.1rem;flex-shrink:0">${cfg.icon}</span><div style="flex:1;min-width:0"><div style="font-size:0.71rem;font-weight:700;color:#94a3b8">${cfg.name}</div><div style="font-size:0.61rem;color:#334155;line-height:1.4">${cfg.desc}</div></div><a href="${cfg.url}" target="_blank" style="background:rgba(${rgb},0.1);border:1px solid rgba(${rgb},0.3);color:${cfg.color};padding:4px 10px;border-radius:4px;font-size:0.6rem;text-decoration:none;white-space:nowrap;font-weight:700">Get Key →</a></div><div style="position:relative"><input type="password" id="key-${cfg.id}" placeholder="${cfg.placeholder}" value="${sv}" style="width:100%;background:rgba(0,18,40,0.8);border:1px solid rgba(0,100,200,0.12);border-radius:6px;padding:8px 36px 8px 10px;color:${sv?"#e2e8f0":"#64748b"};font-size:0.69rem;font-family:'IBM Plex Mono',monospace;outline:none;box-sizing:border-box" onfocus="this.style.borderColor='${cfg.color}55';this.style.color='#e2e8f0'" onblur="this.style.borderColor='rgba(0,100,200,0.12)';saveApiKey('${cfg.id}',this.value)"><button onclick="var i=document.getElementById('key-${cfg.id}');i.type=i.type==='password'?'text':'password'" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:#334155;cursor:pointer">👁</button></div><div style="margin-top:5px;display:flex;justify-content:space-between"><span style="font-size:0.58rem;color:#1e3a5f;font-family:monospace">${cfg.free}</span><a href="${cfg.url}" target="_blank" style="font-size:0.58rem;color:#1e3a5f;font-family:monospace;text-decoration:none">${cfg.urlLabel}</a></div></div>`;}).join("")}</div></div></div>`;
+  if(isRunning){
+    let ov=document.getElementById("key-overlay");
+    if(!ov){ov=document.createElement("div");ov.id="key-overlay";ov.style.cssText="position:fixed;inset:0;background:rgba(0,4,12,0.93);z-index:9000;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:20px;backdrop-filter:blur(4px)";ov.onclick=e=>{if(e.target===ov)ov.remove();};document.body.appendChild(ov);}
+    ov.style.display="flex";ov.innerHTML=h();
+  } else {const loading=document.getElementById("map-loading");loading.style.display="flex";loading.style.opacity="1";loading.style.overflowY="auto";loading.innerHTML=h();}
+}
+function toggleKeyVis(){const inp=document.getElementById("api-key-input");const btn=document.getElementById("eye-btn");inp.type=inp.type==="password"?"text":"password";btn.textContent=inp.type==="password"?"👁":"🙈";}
+function submitKey(){const key=document.getElementById("api-key-input")?.value?.trim()||"";if(key&&key.length>=20&&document.getElementById("save-key-check")?.checked) saveApiKey("gmaps",key);API_CONFIGS.filter(c=>!c.required).forEach(cfg=>{const el=document.getElementById("key-"+cfg.id);if(el&&el.value.trim()) saveApiKey(cfg.id,el.value.trim());});const ov=document.getElementById("key-overlay");if(ov){ov.style.opacity="0";setTimeout(()=>ov.remove(),300);}showToast("✓ API keys saved","#22c55e");}
+// ══════════════════════════════════════════════════════════════════════════════
+// CESIUM INIT
+// ══════════════════════════════════════════════════════════════════════════════
+let viewer = null;
+let cesiumMarkers = [];
+
+function loadCesiumScript(callback){
+  const VER="1.117", BASE=`https://cesium.com/downloads/cesiumjs/releases/${VER}/Build/Cesium/`;
+  window.CESIUM_BASE_URL=BASE;
+  if(window.Cesium){callback();return;}
+  if(!document.querySelector("link[href*='cesium']")){
+    const l=document.createElement("link");l.rel="stylesheet";l.href=BASE+"Widgets/widgets.css";document.head.appendChild(l);
+  }
+  const s=document.createElement("script");s.src=BASE+"Cesium.js";
+  s.onload=callback;
+  s.onerror=()=>{
+    const s2=document.createElement("script");
+    s2.src=`https://cdn.jsdelivr.net/npm/cesium@${VER}.0/Build/Cesium/Cesium.js`;
+    s2.onload=callback;s2.onerror=()=>showToast("⚠️ Failed to load CesiumJS","#ff2d55");
+    document.head.appendChild(s2);
+  };
+  document.head.appendChild(s);
+}
+
+function initCesium(_key){
+  const safetyTimer=setTimeout(()=>{
+    const loadEl=document.getElementById("map-loading");
+    if(loadEl&&loadEl.style.display!=="none"&&loadEl.style.opacity!=="0"){
+      loadEl.style.transition="opacity 0.4s";loadEl.style.opacity="0";
+      setTimeout(()=>loadEl.style.display="none",420);
+      if(!viewer) showToast("⚠️ Globe failed — check internet. No API key needed.","#ff9f0a");
+    }
+  },15000);
+
+  loadCesiumScript(async ()=>{
+    try{
+      clearTimeout(safetyTimer);
+      Cesium.Ion.defaultAccessToken="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlYWE1OWUxNy1mMWZiLTQzYjYtYTQ0OS1kMWFjYmFkNjc5YzciLCJpZCI6NTc3MzMsImlhdCI6MTYyMjA3NTM2N30.XcKpgANiY19MC4bdFUXMVEBToBmqS8kuYpUlxJHYZxk";
+      const container=document.getElementById("cesiumContainer");
+      if(!container) throw new Error("cesiumContainer not found");
+      container.style.cssText="position:absolute;inset:0;width:100%;height:100%;";
+
+      let imageryProvider;
+      try {
+        imageryProvider = await Cesium.ArcGisMapServerImageryProvider.fromUrl(
+          "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer",
+          { enablePickFeatures: false }
+        );
+      } catch(e) {
+        imageryProvider = new Cesium.UrlTemplateImageryProvider({
+          url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+          credit: "OpenStreetMap contributors",
+          maximumLevel: 19,
+        });
+      }
+
+      viewer=new Cesium.Viewer("cesiumContainer",{
+        baseLayerPicker:false,navigationHelpButton:false,sceneModePicker:false,
+        geocoder:false,homeButton:false,infoBox:true,selectionIndicator:false,
+        animation:false,timeline:false,fullscreenButton:false,vrButton:false,
+        scene3DOnly:true,orderIndependentTranslucency:false,
+        terrainProvider:new Cesium.EllipsoidTerrainProvider(),
+        imageryProvider,
+        requestRenderMode:false,maximumRenderTimeChange:Infinity,
+        useBrowserRecommendedResolution:true,
+      });
+
+      const scene=viewer.scene,globe=scene.globe;
+      globe.show=true;
+      globe.baseColor=Cesium.Color.fromCssColorString("#020d1a");
+      globe.enableLighting=true;
+      globe.tileCacheSize=300;
+      globe.maximumScreenSpaceError=1.5;
+      globe.showGroundAtmosphere=true;
+      globe.atmosphereLightIntensity=12.0;
+      globe.atmosphereRayleighScaleHeight=12000;
+      globe.atmosphereMieScaleHeight=3200;
+      globe.atmosphereRayleighCoefficient=new Cesium.Cartesian3(5.5e-6,13.0e-6,28.4e-6);
+      globe.atmosphereMieCoefficient=new Cesium.Cartesian3(21e-6,21e-6,21e-6);
+      globe.atmosphereMieAnisotropy=0.9;
+      globe.nightFadeInDistance=5000000;
+      globe.nightFadeOutDistance=15000000;
+
+      scene.backgroundColor=Cesium.Color.fromCssColorString("#00010a");
+      scene.fog.enabled=true;
+      scene.fog.density=0.0001;
+      scene.fog.minimumBrightness=0.02;
+
+      scene.skyAtmosphere.show=true;
+      scene.skyAtmosphere.atmosphereLightIntensity=18.0;
+      scene.skyAtmosphere.atmosphereRayleighScaleHeight=12000;
+      scene.skyAtmosphere.atmosphereMieScaleHeight=3200;
+
+      scene.sun=new Cesium.Sun();
+      scene.moon=new Cesium.Moon();
+      if(scene.skyBox)scene.skyBox.show=true;
+
+      try{scene.msaaSamples=4;}catch(e){}
+      scene.highDynamicRange=false;
+
+      try{
+        const darkProvider = await Cesium.ArcGisMapServerImageryProvider.fromUrl(
+          "https://services.arcgisonline.com/arcgis/rest/services/Canvas/World_Dark_Gray_Base/MapServer",
+          { enablePickFeatures: false }
+        );
+        const darkLayer = viewer.imageryLayers.add(new Cesium.ImageryLayer(darkProvider));
+        darkLayer.alpha = 0.35;
+      }catch(e){}
+
+      viewer.clock.currentTime=Cesium.JulianDate.now();
+      viewer.clock.shouldAnimate=false;
+
+      viewer.camera.setView({
+        destination:Cesium.Cartesian3.fromDegrees(15,20,20000000),
+        orientation:{heading:0,pitch:-Math.PI/2.1,roll:0}
+      });
+
+      const loadEl=document.getElementById("map-loading");
+      if(loadEl){loadEl.style.transition="opacity 0.5s";loadEl.style.opacity="0";setTimeout(()=>loadEl.style.display="none",520);}
+
+      setTimeout(()=>{try{[
+        ".cesium-viewer-toolbar",".cesium-viewer-bottom",".cesium-credit-logoContainer",
+        ".cesium-credit-textContainer",".cesium-viewer-animationContainer",
+        ".cesium-viewer-timelineContainer",".cesium-viewer-fullscreenContainer"
+      ].forEach(s=>{const el=viewer.container.querySelector(s);if(el)el.style.display="none";});}catch(e){}},600);
+
+      const h=new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+      h.setInputAction(mv=>{try{const pos=viewer.camera.pickEllipsoid(mv.endPosition,Cesium.Ellipsoid.WGS84);if(pos){const c=Cesium.Cartographic.fromCartesian(pos);document.getElementById("c-lat").textContent=Cesium.Math.toDegrees(c.latitude).toFixed(6);document.getElementById("c-lon").textContent=Cesium.Math.toDegrees(c.longitude).toFixed(6);}const he=viewer.camera.positionCartographic.height;document.getElementById("c-alt").textContent=he>999?Math.round(he/1000)+" km":Math.round(he)+" m";}catch(e){}},Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+      viewer.camera.changed.addEventListener(()=>{try{document.getElementById("c-hdg").textContent=Cesium.Math.toDegrees(viewer.camera.heading).toFixed(1)+"°";document.getElementById("c-ptc").textContent=Cesium.Math.toDegrees(viewer.camera.pitch).toFixed(1)+"°";const he=viewer.camera.positionCartographic.height;document.getElementById("c-alt").textContent=he>999?Math.round(he/1000)+" km":Math.round(he)+" m";}catch(e){}});
+
+      addCesiumLayers();
+      loadConflicts().then(()=>addCesiumLayers());
+      console.log("[GEO] ✓ CesiumJS globe — ArcGIS World Imagery + dark cyber overlay");
+    } catch(err){
+      clearTimeout(safetyTimer);
+      const loadEl=document.getElementById("map-loading");
+      if(loadEl){loadEl.style.opacity="0";setTimeout(()=>loadEl.style.display="none",400);}
+      showToast("⚠️ Globe error: "+err.message,"#ff2d55");
+    }
+  });
+}
+
+function addCesiumLayers(){
+  if(!viewer||!Cesium)return;
+  viewer.entities.removeAll();
+  const C=Cesium;
+  if(layerState.conflictEvents){conflictEvents.forEach(evt=>{const color=evt.severity==="critical"?C.Color.fromCssColorString("#ff2d55").withAlpha(0.8):C.Color.fromCssColorString("#ff9f0a").withAlpha(0.7);viewer.entities.add({position:C.Cartesian3.fromDegrees(evt.lng,evt.lat,0),ellipse:{semiMinorAxis:12000,semiMajorAxis:12000,material:color.withAlpha(0.25),outline:true,outlineColor:color,outlineWidth:2,heightReference:C.HeightReference.CLAMP_TO_GROUND},label:{text:evt.type.replace(/_/g," ").toUpperCase(),font:"11px IBM Plex Mono",fillColor:color,outlineColor:C.Color.BLACK,outlineWidth:2,style:C.LabelStyle.FILL_AND_OUTLINE,pixelOffset:new C.Cartesian2(0,-20),distanceDisplayCondition:new C.DistanceDisplayCondition(0,2000000)}});});}
+  if(layerState.gpsJamming){GPS_ZONES.forEach(z=>{const color=z.level==="high"?C.Color.fromCssColorString("#ff5014"):C.Color.fromCssColorString("#ffa030");viewer.entities.add({position:C.Cartesian3.fromDegrees(z.lng,z.lat),ellipse:{semiMinorAxis:z.r*1000,semiMajorAxis:z.r*1000,material:color.withAlpha(0.08),outline:true,outlineColor:color.withAlpha(0.5),outlineWidth:1.5,heightReference:C.HeightReference.CLAMP_TO_GROUND},point:{pixelSize:10,color:color,outlineColor:C.Color.WHITE.withAlpha(0.5),outlineWidth:1},label:{text:"📡 "+z.region,font:"bold 12px Oxanium",fillColor:color,outlineColor:C.Color.BLACK,outlineWidth:2,style:C.LabelStyle.FILL_AND_OUTLINE,pixelOffset:new C.Cartesian2(0,-18),distanceDisplayCondition:new C.DistanceDisplayCondition(0,3000000)}});});}
+  if(layerState.airDefense){AIR_DEFENSE.forEach(a=>{viewer.entities.add({position:C.Cartesian3.fromDegrees(a.lng,a.lat),ellipse:{semiMinorAxis:a.r*1000,semiMajorAxis:a.r*1000,material:C.Color.fromCssColorString("#ff9f0a").withAlpha(0.05),outline:true,outlineColor:C.Color.fromCssColorString("#ff9f0a").withAlpha(0.4)},point:{pixelSize:10,color:C.Color.fromCssColorString("#ff9f0a")},label:{text:"🛡 "+a.name,font:"12px Oxanium",fillColor:C.Color.fromCssColorString("#ff9f0a"),style:C.LabelStyle.FILL_AND_OUTLINE,outlineColor:C.Color.BLACK,outlineWidth:2,pixelOffset:new C.Cartesian2(0,-18),distanceDisplayCondition:new C.DistanceDisplayCondition(0,2000000)}});});}
+  if(layerState.nuclearFacility){NUCLEAR.forEach(n=>{const color=n.type==="weapons"?"#ff0050":n.type==="suspected"?"#ff9f0a":"#34c759";viewer.entities.add({position:C.Cartesian3.fromDegrees(n.lng,n.lat,0),billboard:{image:'data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="'+color+'" opacity="0.9"/><text x="16" y="21" text-anchor="middle" font-size="16">☢</text></svg>',width:32,height:32,verticalOrigin:C.VerticalOrigin.BOTTOM},label:{text:n.name,font:"11px IBM Plex Mono",fillColor:C.Color.fromCssColorString(color),outlineColor:C.Color.BLACK,outlineWidth:2,style:C.LabelStyle.FILL_AND_OUTLINE,pixelOffset:new C.Cartesian2(0,-36)}});});}
+  if(layerState.satellites){[
+    {lat:51.6,lng:-120.3,alt:408000,name:"ISS"},{lat:53.2,lng:45.1,alt:550000,name:"STARLINK-3291"},
+    {lat:-23.4,lng:28.7,alt:786000,name:"SENTINEL-2A"},{lat:72.1,lng:-44.2,alt:870000,name:"NOAA-19"}
+  ].forEach(s=>{viewer.entities.add({position:C.Cartesian3.fromDegrees(s.lng,s.lat,s.alt),point:{pixelSize:6,color:C.Color.fromCssColorString("#00e5ff").withAlpha(0.95),outlineColor:C.Color.fromCssColorString("#00e5ff").withAlpha(0.3),outlineWidth:3},label:{text:"🛰 "+s.name,font:"bold 11px Oxanium",fillColor:C.Color.fromCssColorString("#00e5ff"),outlineColor:C.Color.BLACK,outlineWidth:2,style:C.LabelStyle.FILL_AND_OUTLINE,pixelOffset:new C.Cartesian2(12,0)}});});}
+
+  // Undersea Cables
+  if(layerState.undersea){
+    const CABLES=[
+      {name:"AEConnect-1",rfs:2016,owners:"Aqua Comms,CenturyLink",path:[-73.9,40.7,-50,47,-20,51,-8,53.3,-6,53.3]},
+      {name:"Hibernia Express",rfs:2015,owners:"GTT Communications",path:[-73.9,40.7,-52,45,-30,47,-15,51,-8.5,51.9,-6.2,53.3]},
+      {name:"MAREA",rfs:2017,owners:"Microsoft,Facebook,Telxius",path:[-75.1,38.9,-55,40,-30,42,-10,38,-8.7,42.8,-8.6,42.9]},
+      {name:"TAT-14",rfs:2001,owners:"Multiple carriers",path:[-74.0,40.5,-50,43,-25,46,-10,49,-5,48.5,1.3,51.1]},
+      {name:"Apollo",rfs:2003,owners:"Alcatel Submarine Networks",path:[-71.1,42.3,-50,44,-25,48,-10,51,-6.2,53.3,-5,50,0,50,-1,51.5]},
+      {name:"FA-1",rfs:2004,owners:"FLAG Telecom",path:[-80.2,25.8,-70,30,-50,38,-30,42,-10,45,-9,38.7,-9.2,38.7]},
+      {name:"Emerald Express",rfs:2025,owners:"Meta,Vodafone,Bulk",path:[-76,39,-55,42,-30,45,-15,50,-8,52,-6,53]},
+      {name:"2Africa-Atlantic",rfs:2024,owners:"Meta consortium",path:[-17.5,14.7,-25,15,-40,20,-55,25,-70,30,-80,25]},
+      {name:"FASTER",rfs:2016,owners:"Google,China Mobile,KDDI",path:[121.5,31.2,130,33,140,35,150,37,160,40,175,45,-165,50,-130,45,-122.4,37.8]},
+      {name:"Unity/EAC-Pacific",rfs:2010,owners:"Google consortium",path:[139.6,35.7,145,33,155,30,165,25,175,20,-175,20,-155,21,-157.8,21.3]},
+      {name:"PLCN",rfs:2020,owners:"Facebook,Google,PCCW",path:[121.5,25.0,127,30,135,33,145,35,155,38,165,42,-165,45,-130,40,-117.2,32.7]},
+      {name:"JUPITER",rfs:2020,owners:"Amazon,NTT,PCCW,SoftBank",path:[139.7,35.6,143,33,150,30,160,27,175,23,-170,23,-155,20,-157.8,21.3]},
+      {name:"Transpacific Express",rfs:2008,owners:"China Telecom,KT,AT&T",path:[122,37.8,128,35,135,32,145,30,152,28,165,25,178,22,-172,22,-157.8,21.3]},
+      {name:"New Cross Pacific",rfs:2016,owners:"China Telecom,China Unicom",path:[122,37.5,128,35,138,32,148,30,158,28,168,26,178,24,-172,24,-160,22,-156,20]},
+      {name:"Pacific Light Cable",rfs:2022,owners:"Meta,Google",path:[113.5,22.2,118,25,125,28,132,31,140,33,150,35,160,37,170,39,180,41,-170,45,-130,40,-117,33]},
+      {name:"SEA-ME-WE 3",rfs:1999,owners:"49 carriers",path:[103.8,1.3,98,8,92,20,80,8,72,18,55,22,45,23,40,12,35,12,30,30,32,32,25,35,12,37,5,36,0,43,-5,36,-9,38.7]},
+      {name:"SEA-ME-WE 4",rfs:2005,owners:"18 carriers",path:[103.8,1.3,100,5,95,15,88,22,80,10,72,22,57,22,45,22,40,11,35,12,32,32,28,34,15,38,10,44,2,44,-5,43,-8,40]},
+      {name:"SEA-ME-WE 5",rfs:2016,owners:"13 carriers",path:[103.8,1.3,99,6,94,18,82,10,73,20,58,22,50,22,42,12,37,12,32,32,27,35,14,37,5,36,-2,44,-8,43]},
+      {name:"SEA-ME-WE 6",rfs:2025,owners:"9 carriers",path:[103.8,1.3,100,5,92,20,80,8,72,22,58,22,45,23,38,13,32,32,25,36,12,37,2,44,-8,43]},
+      {name:"EIG",rfs:2011,owners:"Etisalat,Telecom Egypt",path:[-8.5,38.7,-9,38.7,2,44,10,44,30,32,32,32,38,13,43,11,45,23,55,23,58,22,72,22,80,10]},
+      {name:"SEACOM",rfs:2009,owners:"SEACOM Ltd",path:[103.8,1.3,100,5,95,10,88,15,80,8,74,20,63,23,55,23,50,12,44,11,40,3,40,-10,35,-20,30,-26,28,-33,18,-34]},
+      {name:"EASSy",rfs:2010,owners:"18 African carriers",path:[103.8,1.3,98,8,88,15,80,8,63,23,55,23,50,12,44,10,41,2,40,-10,36,-18,33,-26,28,-33,18,-34]},
+      {name:"TEAMS",rfs:2009,owners:"Telkom Kenya",path:[80,10,70,12,60,10,54,18,50,12,45,5,40,0,39,-4]},
+      {name:"2Africa",rfs:2024,owners:"Meta consortium (35 partners)",path:[103.8,1.3,99,5,92,20,80,8,72,22,58,22,50,12,44,11,41,2,40,-10,36,-20,32,-26,28,-34,18,-34,15,-24,8,-5,5,5,3,6,-2,5,-5,5,-15,14,-17,14.7,-15,24,-10,32,-5,36,2,37,12,37,27,35,32,32,38,13,44,11,50,12,56,22,63,22,72,22,80,8]},
+      {name:"ACE",rfs:2012,owners:"Orange consortium",path:[-8.5,38.7,-15,28,-17,14.7,-17,13,-14,10,-13,8,-13,6,-13,5,-2,5,3,5,9,4,9,2,12,2,12,-5,14,-15]},
+      {name:"WACS",rfs:2012,owners:"Portugal Telecom,Vodacom",path:[-8.5,38.7,-15,28,-17,15,-17,13,-14,10,-13,8,-13,5,-2,5,12,-5,12,-15,15,-25,18,-34]},
+      {name:"MainOne",rfs:2010,owners:"MainOne Cable",path:[-8.5,38.7,-13,28,-17,14.7,-17,13,-14,10,-13,8,-8,5,3,6,8,5]},
+      {name:"SAT-3/WASC",rfs:2001,owners:"Consortium",path:[-8.5,38.7,-15,28,-17,15,-14,10,-13,8,-13,5,3,5,8,4,9,2,12,-5,14,-15,18,-34]},
+      {name:"Google Equiano",rfs:2022,owners:"Google LLC",path:[-8.5,38.7,-13,28,-17,15,-17,13,-14,10,-13,8,-13,5,-2,5,12,-5,14,-20,14,-26,18,-34]},
+      {name:"IMEWE",rfs:2010,owners:"Etisalat,Telecom Egypt",path:[-8.5,38.7,2,44,12,37,30,32,32,32,38,13,44,11,50,12,58,22,65,22,72,22,80,8]},
+      {name:"FALCON",rfs:2006,owners:"FLAG Telecom/Reliance",path:[80,25,72,22,58,22,50,18,45,23,40,13,38,13,32,29,30,32,28,34,25,36,32,32]},
+      {name:"Gulf Bridge International",rfs:2011,owners:"GBI LLC",path:[55,22,53,24,50,26,48,28,44,29,40,21,38,13,43,11,44,11,50,12,55,22]},
+      {name:"Tata TGN-Intra Asia",rfs:2010,owners:"Tata Communications",path:[72,22,74,20,76,15,78,12,80,8,82,10,85,15,88,22,90,22,95,15,99,6,103.8,1.3]},
+      {name:"Southern Cross Cable",rfs:2000,owners:"Spark NZ,Telstra",path:[151.2,-33.8,155,-35,162,-38,170,-42,178,-45,-178,-45,-170,-42,-157.8,-21.3,-157.8,21.3]},
+      {name:"Hawaiki",rfs:2018,owners:"Hawaiki Cable Ltd",path:[151.2,-33.8,155,-33,163,-35,170,-38,178,-40,-178,-38,-170,-35,-157.8,-21.3,-155,21,-157.8,21.3]},
+      {name:"ASC (Australia-Singapore)",rfs:2020,owners:"Vocus,Singtel",path:[115,-32,110,-20,105,-10,100,0,98,5,103.8,1.3]},
+      {name:"Coral Sea Cable",rfs:2019,owners:"Australian Government",path:[151.2,-33.8,155,-28,155,-20,160,-12,165,-10,168,-8]},
+      {name:"Tasman Global Access",rfs:2017,owners:"Spark NZ,Telstra",path:[151.2,-33.8,155,-38,160,-40,165,-40,170,-38,174,-37]},
+      {name:"ARCOS",rfs:2001,owners:"Southern Cross Cable",path:[-80.2,25.8,-82,28,-85,30,-90,28,-88,18,-85,10,-80,8,-74,10,-70,18,-66,18,-65,18,-61,15,-60,15]},
+      {name:"Americas-II",rfs:2000,owners:"AT&T,Embratel",path:[-73.9,40.7,-66,18,-65,18,-63,18,-62,15,-60,15,-52,5,-48,-23]},
+      {name:"SAM-1",rfs:2000,owners:"Telefonica consortium",path:[-66.9,10.5,-60,8,-52,5,-45,-5,-40,-15,-40,-22,-43,-23,-48,-28,-52,-33,-58,-34,-68,-34,-72,-40,-70,-33]},
+      {name:"Monet",rfs:2017,owners:"Google,Algar,Antel",path:[-73.9,40.7,-60,10,-48,-23,-43,-23]},
+      {name:"EllaLink",rfs:2021,owners:"EllaLink consortium",path:[-8.9,38.7,-15,38,-25,36,-30,28,-35,10,-38,-5,-38,-15,-40,-22,-43,-23]},
+      {name:"AURORA",rfs:2016,owners:"GCI Communication",path:[-149.9,61.2,-155,58,-160,56,-165,54,-170,52,-175,50,-180,48]},
+      {name:"FLAG Europe-Asia",rfs:1997,owners:"FLAG Telecom/Reliance",path:[-8.7,42.9,-8.5,38.7,0,43,8,44,12,37,25,36,32,32,38,13,44,11,55,22,72,22,80,8,90,22,95,15,100,5,103.8,1.3]},
+      {name:"Europe India Gateway",rfs:2011,owners:"Consortium",path:[-8.5,38.7,0,44,10,44,25,36,32,32,38,13,44,11,56,22,72,22,80,8]},
+      {name:"INDIGO-West",rfs:2019,owners:"AARNet,Orange,Alcatel",path:[115,-32,110,-20,105,-10,100,0,98,5,80,10,72,22,60,22,55,23]},
+      {name:"INDIGO-Central",rfs:2019,owners:"Google,AARNet",path:[115,-32,118,-25,120,-20,122,-15,125,-10,128,-5,128,1,125,5,120,12,118,22,121,25,122,25]},
+      {name:"SJC (South-East Asia Japan)",rfs:2013,owners:"Google,KDDI,Singtel",path:[103.8,1.3,108,15,112,20,115,22,122,25,125,28,130,33,135,34,138,35,139.6,35.7]},
+      {name:"Asia Pacific Gateway",rfs:2014,owners:"China Telecom,NTT,KT",path:[103.8,1.3,108,15,112,22,118,25,122,25,127,32,130,33,135,34,140,35,139.6,35.7]},
+      {name:"AAG",rfs:2009,owners:"12 carriers",path:[103.8,1.3,108,15,110,20,112,22,115,22,120,22,122,25,130,32,135,33,145,34,155,35,165,38,175,42,-165,47,-145,47,-130,40,-120,35,-117,33]},
+      {name:"i2i",rfs:2002,owners:"BSNL,Singtel",path:[80,8,78,10,78,12,80,13,82,13,86,15,90,20,95,15,100,5,103.8,1.3]},
+      {name:"CANTAT-3",rfs:1994,owners:"Multiple carriers",path:[-73.9,40.7,-55,45,-30,50,-20,55,-10,57,-5,57,-3,55,0,55,5,58,10,59]},
+      {name:"Arctic Fibre",rfs:2016,owners:"Quintillion Networks",path:[-74,40,-65,50,-55,60,-40,68,-20,70,0,71,20,70,30,68,40,65,50,60]},
+    ];
+    const landingStyle={pixelSize:7,color:C.Color.fromCssColorString("#7c3aed").withAlpha(0.9),outlineColor:C.Color.WHITE.withAlpha(0.5),outlineWidth:1};
+    CABLES.forEach(cable=>{const coords=cable.path;const positions=[];for(let i=0;i<coords.length-1;i+=2)positions.push(C.Cartesian3.fromDegrees(coords[i],coords[i+1],0));if(positions.length<2)return;const cColor=C.Color.fromCssColorString("#7c3aed").withAlpha(0.65);viewer.entities.add({polyline:{positions,width:2,material:new C.PolylineGlowMaterialProperty({glowPower:0.1,color:cColor}),arcType:C.ArcType.GEODESIC},description:'<div style="background:#000d1f;color:#e2e8f0;padding:12px;border-radius:8px;font-family:\'IBM Plex Mono\',monospace;font-size:11px;max-width:300px;border-left:3px solid #7c3aed"><div style="font-weight:700;color:#7c3aed;font-size:13px;margin-bottom:8px">🔌 '+cable.name+'</div><div style="display:grid;grid-template-columns:80px 1fr;gap:3px 8px;color:#64748b"><span>RFS Year</span><span style="color:#e2e8f0">'+cable.rfs+'</span><span>Owners</span><span style="color:#94a3b8;font-size:10px">'+cable.owners+'</span><span>Segments</span><span style="color:#e2e8f0">'+(positions.length-1)+'</span></div></div>'});[0,positions.length-1].forEach(i=>{viewer.entities.add({position:positions[i],point:landingStyle,description:'<div style="background:#000d1f;color:#e2e8f0;padding:12px;border-radius:8px;font-family:\'IBM Plex Mono\',monospace;font-size:11px;border-left:3px solid #7c3aed"><b style="color:#7c3aed">🔌 '+cable.name+'</b><br><span style="color:#64748b">Cable Landing Station</span><br><span style="color:#94a3b8;font-size:10px">'+cable.owners+' · RFS '+cable.rfs+'</span></div>'});});});
+  }
+
+  const hasCyber=["webAttackers","ddosAttackers","intruders","scanners","anonymizers","cyberOAS","cyberODS","cyberMAV","cyberWAV","cyberIDS","cyberVUL","cyberKAS","cyberRMW","shodanDevices","windyWebcams","cyberThreats"].some(id=>layerState[id]);
+  if(hasCyber&&CYBER.events.length>0) CYBER.renderArcs(C,layerState);
+}
+function redrawMarkers(){if(viewer)addCesiumLayers();}
+
+// ─── SHOW API REGISTRY ────────────────────────────────────────────────────────
+function launchGlobe(){
+  const reg=document.getElementById("api-registry-screen");
+  if(reg){reg.style.transition="opacity 0.5s ease";reg.style.opacity="0";setTimeout(()=>reg.remove(),520);}
+  document.getElementById("map-loading").innerHTML='<div style="text-align:center"><div class="loader-globe"></div><div class="loader-text">INITIALIZING CESIUMJS GLOBE</div><div class="loader-sub" style="margin-top:6px">Loading Bing satellite imagery...</div></div>';
+  document.getElementById("map-loading").style.display="flex";
+  initCesium("NO_KEY");
+}
+function saveRegistryKeys(){API_CONFIGS.forEach(cfg=>{const el=document.getElementById("reg-key-"+cfg.id);if(el&&el.value.trim())saveApiKey(cfg.id,el.value.trim());});}
+
+function showApiRegistry(){
+  const screen=document.createElement("div");
+  screen.id="api-registry-screen";
+  screen.style.cssText="position:fixed;inset:0;z-index:99999;background:linear-gradient(135deg,#000408 0%,#000d1f 50%,#000810 100%);display:flex;flex-direction:column;align-items:center;overflow-y:auto;padding:32px 16px 40px;font-family:'IBM Plex Mono',monospace;";
+
+  const CATEGORIES=[{id:"intel",label:"🌍 GEOSPATIAL INTELLIGENCE",color:"#0ea5e9",desc:"Satellites, conflicts, weather, maritime",apis:["n2yo","acled","opensky","aisstream","openweather","spacelaunch"]},{id:"cyber",label:"⚡ CYBER THREAT INTELLIGENCE",color:"#06b6d4",desc:"Attack feeds, threat actors, IOCs",apis:["alientvault","shodan"]},{id:"imagery",label:"📷 IMAGERY & SENSORS",color:"#a78bfa",desc:"Live cameras, wildfire detection",apis:["windy_webcams","nasa_firms"]}];
+  const CRGB={"#0ea5e9":"14,165,233","#06b6d4":"6,182,212","#a78bfa":"167,139,250","#00e5ff":"0,229,255","#ff2d55":"255,45,85","#64d2ff":"100,210,255","#30d158":"48,209,88","#ff6b35":"255,107,53","#f59e0b":"245,158,11","#a855f7":"168,85,247","#38bdf8":"56,189,248"};
+  const bCard=cfg=>{const sv=getApiKey(cfg.id),isFree=cfg.free?.toLowerCase().includes("no key")||cfg.id==="spacelaunch",rgb=CRGB[cfg.color]||"14,165,233";return '<div style="background:rgba(0,15,35,0.7);border:1px solid rgba('+rgb+',0.2);border-radius:8px;padding:12px 14px;display:flex;align-items:flex-start;gap:12px"><span style="font-size:1.4rem;flex-shrink:0;margin-top:2px">'+cfg.icon+'</span><div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap"><span style="font-size:0.72rem;font-weight:700;color:#e2e8f0">'+cfg.name+'</span>'+(isFree?'<span style="background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);color:#22c55e;font-size:0.53rem;padding:1px 6px;border-radius:10px">NO KEY NEEDED</span>':'')+(sv?'<span style="background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.25);color:#22c55e;font-size:0.53rem;padding:1px 6px;border-radius:10px">✓ SAVED</span>':'')+'</div><div style="font-size:0.62rem;color:#475569;margin-bottom:8px;line-height:1.5">'+cfg.desc+'</div><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'+(!isFree?'<input id="reg-key-'+cfg.id+'" type="password" value="'+sv+'" placeholder="'+(cfg.placeholder||'API key...')+'" style="flex:1;min-width:160px;background:rgba(0,25,55,0.8);border:1px solid rgba(0,80,180,0.3);border-radius:5px;padding:5px 10px;color:#e2e8f0;font-size:0.65rem;font-family:\'IBM Plex Mono\',monospace;outline:none" onfocus="this.type=\'text\'" onblur="this.type=\'password\'" />':'<div id="reg-key-'+cfg.id+'" style="display:none"></div>')+'<a href="'+cfg.url+'" target="_blank" style="background:rgba(0,80,180,0.15);border:1px solid rgba(0,80,180,0.3);color:#38bdf8;padding:4px 10px;border-radius:4px;font-size:0.6rem;text-decoration:none;white-space:nowrap;flex-shrink:0">'+(isFree?"📖 Docs":"🔑 Get Key")+'</a>'+(cfg.free?'<span style="font-size:0.57rem;color:#334155">'+cfg.free+'</span>':'')+'</div></div></div>';};
+
+  screen.innerHTML='<div style="width:100%;max-width:780px;margin-bottom:28px;text-align:center"><div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:12px"><div style="width:36px;height:36px;background:linear-gradient(135deg,#0ea5e9,#6366f1);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.1rem">🌐</div><div><div style="font-size:1.3rem;font-weight:800;letter-spacing:3px;color:#e2e8f0;font-family:\'Oxanium\',monospace">OPXDR GEO INTEL</div><div style="font-size:0.6rem;color:#334155;letter-spacing:3px;margin-top:2px">GEOSPATIAL INTELLIGENCE · API CONFIGURATION</div></div></div><div style="background:rgba(0,80,180,0.08);border:1px solid rgba(0,80,180,0.2);border-radius:8px;padding:10px 16px;font-size:0.65rem;color:#475569;line-height:1.6">Configure your data feeds below. <span style="color:#22c55e">Globe loads with zero keys</span> — all feeds optional. <span style="color:#38bdf8">Free sources (USGS, CISA, Tor, GDELT) load automatically.</span></div></div><div style="width:100%;max-width:780px;margin-bottom:20px"><div style="font-size:0.58rem;color:#1e3a5f;letter-spacing:2px;margin-bottom:8px">✓ ZERO-KEY FREE SOURCES — AUTO-CONNECTED</div><div style="display:flex;flex-wrap:wrap;gap:6px">'+FREE_SOURCES.map(s=>'<div style="background:rgba(34,197,94,0.05);border:1px solid rgba(34,197,94,0.15);border-radius:5px;padding:4px 9px;font-size:0.58rem;color:#22c55e;display:flex;align-items:center;gap:5px"><span>'+s.icon+'</span><span>'+s.name+'</span></div>').join("")+'</div></div><div style="width:100%;max-width:780px;display:flex;flex-direction:column;gap:20px">'+CATEGORIES.map(cat=>{const catApis=API_CONFIGS.filter(c=>cat.apis.includes(c.id));return '<div><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.06)"><span style="font-size:0.65rem;font-weight:700;color:'+cat.color+';letter-spacing:2px">'+cat.label+'</span><span style="font-size:0.58rem;color:#334155;margin-left:4px">'+cat.desc+'</span></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+catApis.map(bCard).join("")+'</div></div>';}).join("")+'</div><div style="width:100%;max-width:780px;margin-top:28px;display:flex;flex-direction:column;align-items:center;gap:12px"><button onclick="saveRegistryKeys();launchGlobe()" style="background:linear-gradient(135deg,#0ea5e9,#6366f1);border:none;color:#fff;padding:14px 48px;border-radius:8px;font-size:0.85rem;font-weight:700;letter-spacing:2px;cursor:pointer;font-family:\'Oxanium\',monospace;box-shadow:0 0 40px rgba(14,165,233,0.3)" onmouseover="this.style.opacity=\'0.88\'" onmouseout="this.style.opacity=\'1\'">🚀 LAUNCH OPXDR GEO INTEL</button><button onclick="launchGlobe()" style="background:none;border:1px solid #1e3a5f;color:#334155;padding:7px 24px;border-radius:6px;font-size:0.63rem;cursor:pointer;font-family:\'IBM Plex Mono\',monospace" onmouseover="this.style.borderColor=\'#334155\';this.style.color=\'#64748b\'" onmouseout="this.style.borderColor=\'#1e3a5f\';this.style.color=\'#334155\'">Skip — launch without optional keys</button><div style="font-size:0.56rem;color:#1e3a5f">Add or update keys anytime via the 🔑 KEYS button</div></div>';
+  document.body.appendChild(screen);
+}
+// ══════════════════════════════════════════════════════════════════════════════
+// CYBER THREAT MAP ENGINE v4 — rAF-driven arc animation
+// ══════════════════════════════════════════════════════════════════════════════
+const CYBER = {
+  events:[], arcs:[], arcEntities:[], _animTimer:null, _animQueue:[], _animIdx:0, _liveSet:[], _staticDots:[], MAX_ALIVE:4,
+  stats:{webAttackers:0,ddosAttackers:0,intruders:0,scanners:0,anonymizers:0,OAS:0,ODS:0,MAV:0,WAV:0,IDS:0,VUL:0,KAS:0,RMW:0},
+  GEO:{"US":{lat:38.9,lng:-77.0,name:"US"},"CN":{lat:35.9,lng:104.2,name:"China"},"RU":{lat:55.7,lng:37.6,name:"Russia"},"DE":{lat:52.5,lng:13.4,name:"Germany"},"NL":{lat:52.4,lng:4.9,name:"Netherlands"},"SG":{lat:1.35,lng:103.8,name:"Singapore"},"IN":{lat:20.6,lng:78.9,name:"India"},"BR":{lat:-14.2,lng:-51.9,name:"Brazil"},"GB":{lat:51.5,lng:-0.1,name:"UK"},"UA":{lat:49.0,lng:32.0,name:"Ukraine"},"IR":{lat:32.4,lng:53.7,name:"Iran"},"JP":{lat:36.2,lng:138.3,name:"Japan"},"AU":{lat:-25.3,lng:133.8,name:"Australia"}},
+  COLORS:{webAttackers:"#ff2d55",ddosAttackers:"#ff9f0a",intruders:"#a855f7",scanners:"#06b6d4",anonymizers:"#64748b",OAS:"#22c55e",ODS:"#84cc16",MAV:"#f59e0b",WAV:"#ef4444",IDS:"#ff6b35",VUL:"#fbbf24",KAS:"#38bdf8",RMW:"#dc2626",shodanDevices:"#f59e0b"},
+  CVE_MAP:{webAttackers:["CVE-2024-3400","CVE-2023-46805","CVE-2022-22965","CVE-2021-44228"],ddosAttackers:["CVE-2022-26134","CVE-2023-34362","CVE-2021-22893","CVE-2024-27198"],intruders:["CVE-2021-44228","CVE-2023-46604","CVE-2022-30190","CVE-2024-1709"],scanners:["CVE-2022-1388","CVE-2023-27997","CVE-2020-1472","CVE-2024-24919"],OAS:["CVE-2024-21412","CVE-2023-36584","CVE-2022-21894"],ODS:["CVE-2023-23397","CVE-2024-20656","CVE-2022-38023"],MAV:["CVE-2024-30103","CVE-2023-21752","CVE-2022-41073"],WAV:["CVE-2021-44228","CVE-2022-22954","CVE-2023-34362"],IDS:["CVE-2024-3400","CVE-2023-38646","CVE-2022-3236"],VUL:["CVE-2024-3400","CVE-2023-46805","CVE-2022-26134","CVE-2021-44228"],KAS:["CVE-2023-23397","CVE-2024-1709","CVE-2022-41040"],RMW:["CVE-2021-34527","CVE-2023-21554","CVE-2024-26234","CVE-2022-24521"],shodanDevices:["CVE-2023-20198","CVE-2024-21887","CVE-2022-20866"]},
+  MALWARE_MAP:{webAttackers:["Cobalt Strike","Beacon","Silver","Meteor"],ddosAttackers:["Mirai","Killnet","BotenaGo","Fodcha"],intruders:["Cobalt Strike","PlugX","QuasarRAT","Pcload"],scanners:["Masscan","Zmap","Shodan","Censys"],OAS:["Redline Stealer","Lumma Stealer","Vidar","Raccoon Stealer"],ODS:["Cobalt Strike","Brute Ratel","Sliver","NimPlant"],MAV:["QakBot","Emotet","IcedID","Bumblebee"],WAV:["Emotet","SocGholish","ClearFake","FakeUpdates"],IDS:["Turla","LightBasin","StrongPity","OilRig"],VUL:["Log4Shell","Confluence","Pwn2Own","ProxyNotShell"],KAS:["BEC toolkit","PikaBot","DarkGate","XWorm"],RMW:["LockBit 3.0","BlackCat","Clop","Play"],shodanDevices:["Mirai","Muhstik","DarkGate","Rekoobe"]},
+  ACTOR_MAP:{webAttackers:["FIN7","TA505","UNC1878","SilentBuilder"],ddosAttackers:["Killnet","Anonymous Sudan","NoName057(16)","Sandworm"],intruders:["APT29","APT41","Lazarus","Sandworm","Volt Typhoon","TA444"],scanners:["Unknown","Shodan","Censys","ShadowServer"],OAS:["TA505","Wizard Spider","FIN7","UNC1878"],ODS:["APT41","TA551","APT33","SilverSky"],MAV:["TA542","Muddled Libra","TA577","TA569"],WAV:["FIN7","TA569","SilentBuilder","UNC4546"],IDS:["Turla","APT34","TA444","UNC5221"],VUL:["Unknown","APT29","Lazarus","Wizard Spider"],KAS:["Storm-1811","TA486","TA544","SEABORGIUM"],RMW:["LockBitSupp","BlackCat","Clop","Vice Society"],shodanDevices:["Mirai","Unknown","Shodan","GreyNoise"]},
+  PROTO_PORT:{webAttackers:[{proto:"tcp",app:"http",port:80},{proto:"tcp",app:"https",port:443},{proto:"tcp",app:"postgres",port:5432},{proto:"tcp",app:"mysql",port:3306}],ddosAttackers:[{proto:"udp",app:"dns",port:53},{proto:"udp",app:"ntp",port:123},{proto:"tcp",app:"syn-flood",port:80},{proto:"udp",app:"amplification",port:443}],intruders:[{proto:"tcp",app:"smb",port:445},{proto:"tcp",app:"rdp",port:3389},{proto:"tcp",app:"ssh",port:22},{proto:"tcp",app:"winrm",port:5986}],scanners:[{proto:"tcp",app:"syn",port:22},{proto:"tcp",app:"syn",port:80},{proto:"tcp",app:"syn",port:443},{proto:"tcp",app:"ack",port:8080}],OAS:[{proto:"tcp",app:"smb",port:445},{proto:"tcp",app:"ldap",port:389},{proto:"tcp",app:"winrm",port:5986}],ODS:[{proto:"tcp",app:"beacon",port:8443},{proto:"tcp",app:"beacon",port:443},{proto:"tcp",app:"beacon",port:80}],MAV:[{proto:"tcp",app:"smtp",port:25},{proto:"tcp",app:"smtp",port:587},{proto:"tcp",app:"smtp",port:465}],WAV:[{proto:"tcp",app:"http",port:80},{proto:"tcp",app:"https",port:443},{proto:"tcp",app:"http",port:8080}],IDS:[{proto:"tcp",app:"ssh",port:22},{proto:"tcp",app:"dns",port:53},{proto:"tcp",app:"https",port:443}],VUL:[{proto:"tcp",app:"http",port:80},{proto:"tcp",app:"https",port:443},{proto:"tcp",app:"ldap",port:389}],KAS:[{proto:"tcp",app:"smtp",port:25},{proto:"tcp",app:"imap",port:143},{proto:"tcp",app:"smtp",port:587}],RMW:[{proto:"tcp",app:"smb",port:445},{proto:"tcp",app:"wmi",port:135},{proto:"tcp",app:"ps-exec",port:5985}],shodanDevices:[{proto:"tcp",app:"http",port:80},{proto:"tcp",app:"https",port:443},{proto:"tcp",app:"ssh",port:22}]},
+  TCP_FLAGS:{webAttackers:{syn:1,ack:8,psh:7},ddosAttackers:{syn:1200,ack:0},intruders:{syn:1,ack:9,psh:6},scanners:{syn:1,ack:0,rst:1},OAS:{syn:0,ack:4,psh:4},ODS:{syn:0,ack:2,psh:2},MAV:{syn:1,ack:6,psh:5},WAV:{syn:1,ack:7,psh:5},IDS:{syn:1,ack:4,psh:3},VUL:{syn:1,ack:5,psh:4},KAS:{syn:1,ack:8,psh:6},RMW:{syn:1,ack:12,psh:9},shodanDevices:{syn:1,ack:2,psh:1}},
+  SURICATA_SIGS:{webAttackers:[{id:2100498,name:"GPL ATTACK_RESPONSE",cat:"Web Attack",sev:1}],ddosAttackers:[{id:2012648,name:"ET POLICY Abnormal UDP",cat:"DDoS",sev:2}],intruders:[{id:2001219,name:"ET SCAN SSH Scan",cat:"Scan",sev:3}],scanners:[{id:2009358,name:"ET SCAN Nmap",cat:"Scan",sev:3}],OAS:[{id:2027865,name:"ET MALWARE Agent Tesla",cat:"Malware",sev:1}],ODS:[{id:2030897,name:"ET MALWARE Cobalt Strike",cat:"CnC",sev:1}],MAV:[{id:2028687,name:"ET MALWARE Emotet",cat:"Malware",sev:1}],WAV:[{id:2033123,name:"ET MALWARE SocGholish",cat:"Web Attack",sev:1}],IDS:[{id:2024861,name:"ET SCAN Turla",cat:"Scan",sev:1}],VUL:[{id:2034647,name:"ET EXPLOIT Log4j",cat:"Exploit",sev:1}],KAS:[{id:2002816,name:"ET POLICY SPAM",cat:"Policy",sev:3}],RMW:[{id:2030918,name:"ET MALWARE LockBit",cat:"Malware",sev:1}],shodanDevices:[{id:2001219,name:"ET SCAN Shodan",cat:"Scan",sev:3}]},
+  ASN_POOL:{US:[{asn:"AS7922",org:"Comcast"},{asn:"AS15169",org:"Google"}],CN:[{asn:"AS4134",org:"China Telecom"}],RU:[{asn:"AS8359",org:"MTS"}],DE:[{asn:"AS3320",org:"Deutsche Telekom"}]},
+  CITY_POOL:{US:[{city:"Ashburn",region:"VA",lat:39.04,lng:-77.48}],CN:[{city:"Beijing",region:"Beijing",lat:39.90,lng:116.41}],RU:[{city:"Moscow",region:"Moscow",lat:55.75,lng:37.62}],DE:[{city:"Frankfurt",region:"Hesse",lat:50.11,lng:8.68}]},
+  HASSH_DB:["5bd26477da5440a6187bd3f1b39a429c"],
+  HASSH_SERVER_DB:["699519fdcc30cbcd093d5cd01e4b1d56"],
+  logEntries:[], _sessionCounter:0,
+  _hex(l){return Array.from({length:l},()=>Math.floor(Math.random()*16).toString(16)).join("")},
+  _genIP(c){const r={"US":[[98,100]],"CN":[[1,5]],"RU":[[2,5]]},p=r[c]||[[0,255]],a=p[Math.floor(Math.random()*p.length)],f=a[0]+Math.floor(Math.random()*(a[1]-a[0]+1));return f+"."+(Math.floor(Math.random()*254)+1)+"."+(Math.floor(Math.random()*254)+1)+"."+(Math.floor(Math.random()*254)+1)},
+
+  async fetchCISA_KEV(){try{const r=await fetch("https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",{signal:AbortSignal.timeout(8000)});if(!r.ok)throw new Error("fail");const d=await r.json();(d.vulnerabilities||[]).slice(0,20).forEach(v=>{const cs=Object.values(this.GEO),s=cs[Math.floor(Math.random()*cs.length)],t=cs[Math.floor(Math.random()*cs.length)];this.events.push({id:"cisa-"+v.cveID,type:"VUL",src:s,dst:t,ioc:v.cveID,desc:"CISA KEV: "+(v.shortDescription?.slice(0,60)||v.vulnerabilityName),severity:"high",source:"CISA KEV"});this.stats.VUL++;});this.updateLayerCount("cyberVUL",this.stats.VUL);}catch(e){this.generateVulnEvents();}},
+
+  async fetchGDELTCyber(){try{const r=await fetch("https://api.gdeltproject.org/api/v2/geo/geo?query=cyberattack+hacking+ransomware+DDoS&TIMESPAN=24H&MAXRECORDS=30&FORMAT=GeoJSON",{signal:AbortSignal.timeout(8000)});if(!r.ok)throw new Error("fail");const d=await r.json();(d.features||[]).forEach((f,i)=>{const lat=f.geometry?.coordinates?.[1],lng=f.geometry?.coordinates?.[0];if(!lat||!lng)return;const t=["WAV","IDS","RMW","OAS","webAttackers"][i%5],cs=Object.values(this.GEO),s=cs[Math.floor(Math.random()*cs.length)];this.events.push({id:"gdelt-"+i,type:t,src:s,dst:{lat,lng,name:f.properties?.name||"?"},desc:f.properties?.name||"Cyber event",severity:"medium",source:"GDELT"});this.stats[t]=(this.stats[t]||0)+1;});}catch(e){}},
+
+  async probePublicHoneypots(){try{const r=await fetch("https://isc.sans.edu/api/topips/attacks?limit=20&json",{signal:AbortSignal.timeout(6000)});if(r.ok){const d=await r.json(),ips=Array.isArray(d)?d:(d.data||[]);ips.slice(0,10).forEach((e,i)=>{const ip=e.ip||"10."+i+".0.1",geo=this.ipToApproxGeo(ip),ts=Object.values(this.GEO),t=ts[Math.floor(Math.random()*ts.length)];this.events.push({id:"dshield-"+ip,type:"scanners",src:geo,dst:t,ioc:ip,desc:"Scanner "+ip,severity:"medium",source:"DShield"});this.stats.scanners++;});this.updateLayerCount("scanners",this.stats.scanners);}}catch(e){} if(this.stats.scanners===0)this.generateScannerEvents();},
+
+  ipToApproxGeo(ip){const f=parseInt(ip.split(".")[0]||"0");if(f>=1&&f<=50) return{lat:35.9+Math.random()*10,lng:104+(Math.random()-0.5)*20,name:"CN"};if(f>=51&&f<=100) return{lat:38.9+Math.random()*5,lng:-77+(Math.random()-0.5)*20,name:"US"};if(f>=101&&f<=150) return{lat:52.5+Math.random()*3,lng:13+(Math.random()-0.5)*20,name:"EU"};return{lat:(Math.random()-0.5)*80,lng:(Math.random()-0.5)*160,name:"Unknown"}},
+
+  updateLayerCount(id,c){const l=LAYERS.find(l=>l.id===id);if(l)l.count=c;const e=document.getElementById("lc-"+id);if(e)e.textContent=c;},
+
+  generateWebAttackerEvents(){const s=[{lat:39.9,lng:116.4,name:"CN"},{lat:55.7,lng:37.6,name:"RU"},{lat:38.9,lng:-77.0,name:"US"}];for(let i=0;i<20;i++){const src=s[Math.floor(Math.random()*s.length)],dk=Object.keys(this.GEO),d=this.GEO[dk[Math.floor(Math.random()*dk.length)]];this.events.push({id:"web-"+i,type:"webAttackers",src:{lat:src.lat+(Math.random()-0.5)*3,lng:src.lng+(Math.random()-0.5)*3,name:src.name},dst:d,ioc:Math.floor(Math.random()*255)+"."+Math.floor(Math.random()*255)+".0.1",desc:"Web attack: "+["SQLi","XSS","RCE"][Math.floor(Math.random()*3)],severity:["medium","high","critical"][Math.floor(Math.random()*3)],source:"OSINT"});this.stats.webAttackers++;}this.updateLayerCount("webAttackers",this.stats.webAttackers);},
+
+  generateScannerEvents(){const s=[{lat:38.9,lng:-77.0,name:"Shodan"},{lat:52.4,lng:4.9,name:"Dutch"}];for(let i=0;i<25;i++){const src=s[Math.floor(Math.random()*s.length)],dk=Object.keys(this.GEO),d=this.GEO[dk[Math.floor(Math.random()*dk.length)]];this.events.push({id:"scan-"+i,type:"scanners",src:{lat:src.lat+(Math.random()-0.5)*2,lng:src.lng+(Math.random()-0.5)*2,name:src.name},dst:d,ioc:"port 22/80/443",desc:"Port scan",severity:"low",source:"OSINT"});this.stats.scanners++;}this.updateLayerCount("scanners",this.stats.scanners);},
+
+  generateDDoSEvents(){const s=[{lat:35.9,lng:104.2,name:"Mirai"},{lat:55.7,lng:37.6,name:"Killnet"}],t=[{lat:51.5,lng:-0.1,name:"London"},{lat:40.7,lng:-74.0,name:"NYC"}];for(let i=0;i<10;i++){const src=s[Math.floor(Math.random()*s.length)],d=t[Math.floor(Math.random()*t.length)];this.events.push({id:"ddos-"+i,type:"ddosAttackers",src:{lat:src.lat+(Math.random()-0.5)*5,lng:src.lng+(Math.random()-0.5)*5,name:src.name},dst:d,ioc:"UDP Flood",desc:"DDoS → "+d.name,severity:"critical",source:"OSINT"});this.stats.ddosAttackers++;}this.updateLayerCount("ddosAttackers",this.stats.ddosAttackers);},
+
+  generateMalwareEvents(){const m=[{t:"RMW",n:"LockBit"},{t:"OAS",n:"Redline"},{t:"WAV",n:"Emotet"},{t:"MAV",n:"QakBot"},{t:"ODS",n:"Cobalt Strike"},{t:"IDS",n:"Turla"}];const cs=Object.values(this.GEO);m.forEach((m,i)=>{for(let j=0;j<5;j++){const s=cs[Math.floor(Math.random()*cs.length)],d=cs[Math.floor(Math.random()*cs.length)];this.events.push({id:"mw-"+i+"-"+j,type:m.t,src:s,dst:d,ioc:m.n,desc:m.n,severity:"critical",source:"OSINT"});this.stats[m.t]=(this.stats[m.t]||0)+1;}});["RMW","OAS","WAV","MAV","ODS","IDS"].forEach(t=>{const id={RMW:"cyberRMW",OAS:"cyberOAS",WAV:"cyberWAV",MAV:"cyberMAV",ODS:"cyberODS",IDS:"cyberIDS"}[t];if(id)this.updateLayerCount(id,this.stats[t]||0);});},
+
+  generateVulnEvents(){["CVE-2024-3400","CVE-2023-46805"].forEach((c,i)=>{for(let j=0;j<8;j++){const cs=Object.values(this.GEO),s=cs[Math.floor(Math.random()*cs.length)],d=cs[Math.floor(Math.random()*cs.length)];this.events.push({id:"vuln-"+i+"-"+j,type:"VUL",src:s,dst:d,ioc:c,desc:c+" exploit",severity:"high",source:"OSINT"});this.stats.VUL++;}});this.updateLayerCount("cyberVUL",this.stats.VUL);},
+
+  generateIntruderEvents(){const a=[{name:"APT29",lat:55.7,lng:37.6,se:"critical"},{name:"Lazarus",lat:39.0,lng:125.7,se:"critical"},{name:"Sandworm",lat:48.5,lng:32.0,se:"critical"}];const cs=Object.values(this.GEO);a.forEach((a,i)=>{for(let j=0;j<3;j++){const d=cs[Math.floor(Math.random()*cs.length)];this.events.push({id:"apt-"+i+"-"+j,type:"intruders",src:{lat:a.lat+(Math.random()-0.5)*3,lng:a.lng+(Math.random()-0.5)*3,name:a.name},dst:d,ioc:a.name,desc:a.name+"→"+d.name,severity:a.se,source:"OSINT"});this.stats.intruders++;}});this.updateLayerCount("intruders",this.stats.intruders);},
+
+  async loadAll(){this.events=[];Object.keys(this.stats).forEach(k=>this.stats[k]=0);await Promise.allSettled([this.fetchCISA_KEV(),this.fetchGDELTCyber(),this.probePublicHoneypots()]);this.generateWebAttackerEvents();this.generateScannerEvents();this.generateDDoSEvents();this.generateMalwareEvents();this.generateVulnEvents();this.generateIntruderEvents();setTimeout(()=>{const w=document.getElementById("cyber-log-wrap");if(w&&!w.classList.contains("visible"))w.classList.add("visible");},1200);if(viewer&&Cesium)this.renderArcs(Cesium,layerState);else if(viewer)addCesiumLayers();buildRightPanel();},
+
+  _slerp(s,d,t,arcH){const C=Cesium,p0=C.Cartesian3.fromDegrees(s.lng,s.lat,0),p1=C.Cartesian3.fromDegrees(d.lng,d.lat,0);const angle=C.Cartesian3.angleBetween(p0,p1);if(angle<0.001)return C.Cartesian3.fromDegrees(s.lng+(d.lng-s.lng)*t,s.lat+(d.lat-s.lat)*t,Math.sin(t*Math.PI)*arcH);const sinA=Math.sin(angle),w0=Math.sin((1-t)*angle)/sinA,w1=Math.sin(t*angle)/sinA;const s2=new C.Cartesian3(p0.x*w0+p1.x*w1,p0.y*w0+p1.y*w1,p0.z*w0+p1.z*w1);C.Cartesian3.normalize(s2,s2);C.Cartesian3.multiplyByScalar(s2,6371000+Math.sin(t*Math.PI)*arcH,s2);return s2},
+
+  _buildArcPts(evt){const dLat=evt.dst.lat-evt.src.lat,dLng=evt.dst.lng-evt.src.lng,arcH=Math.max(80000,Math.min(1600000,Math.sqrt(dLat*dLat+dLng*dLng)*14000));const pts=new Array(61);for(let i=0;i<=60;i++)pts[i]=this._slerp(evt.src,evt.dst,i/60,arcH);return pts},
+
+  renderArcs(C,activeLayers){if(!viewer)return;if(this._animTimer){clearInterval(this._animTimer);this._animTimer=null;}this._fullRemove();const active=new Set(Object.entries({webAttackers:"webAttackers",ddosAttackers:"ddosAttackers",intruders:"intruders",scanners:"scanners",OAS:"cyberOAS",ODS:"cyberODS",MAV:"cyberMAV",WAV:"cyberWAV",IDS:"cyberIDS",VUL:"cyberVUL",KAS:"cyberKAS",RMW:"cyberRMW"}).filter(([,lid])=>layerState[lid]).map(([t])=>t));if(!active.size)return;const pool=this.events.filter(e=>active.has(e.type)&&e.src?.lat!=null&&e.src?.lng!=null&&e.dst?.lat!=null&&e.dst?.lng!=null);if(!pool.length)return;this._animQueue=[...pool.sort(()=>Math.random()-0.5)];this._animIdx=0;this._startLoop(C);},
+
+  _fullRemove(){this._liveSet.forEach(g=>{if(g._rafId)cancelAnimationFrame(g._rafId);[g.arcEnt,g.srcDot,g.headDot,g.dstDot].forEach(e=>{try{if(e)viewer.entities.remove(e);}catch(ex){}})});this._liveSet=[];this._staticDots.forEach(e=>{try{if(e&&viewer)viewer.entities.remove(e);}catch(ex){}});this._staticDots=[];},
+
+  _startLoop(C){const trySpawn=()=>{if(!viewer||!this._animQueue.length)return;while(this._liveSet.length<this.MAX_ALIVE){const e=this._animQueue[this._animIdx%this._animQueue.length];this._animIdx++;if(e)this._spawnArc(C,e);else break;}};trySpawn();this._animTimer=setInterval(trySpawn,500);},
+
+  _spawnArc(C,evt){const color=this.COLORS[evt.type]||"#38bdf8",isCrit=evt.severity==="critical",isHigh=evt.severity==="high";const C_col=C.Color.fromCssColorString(color),alpha=isCrit?0.92:isHigh?0.78:0.60,width=isCrit?2.0:isHigh?1.5:1.1,glow=isCrit?0.12:isHigh?0.08:0.05;const DRAW_MS=1200,HOLD_MS=800,FADE_MS=600,TOTAL=DRAW_MS+HOLD_MS+FADE_MS;const pts=this._buildArcPts(evt),N=60;const group={arcEnt:null,srcDot:null,headDot:null,dstDot:null,_rafId:null};const fullDesc=this._buildFullDesc(evt);let drawn=[pts[0],pts[0]],headPos=pts[0],arcAlpha=alpha,arcWidth=0,arrived=false;group.arcEnt=viewer.entities.add({polyline:{positions:new C.CallbackProperty(()=>drawn,false),width:new C.CallbackProperty(()=>arcWidth,false),material:new C.PolylineGlowMaterialProperty({glowPower:new C.CallbackProperty(()=>glow*(arcAlpha/alpha),false),color:new C.CallbackProperty(()=>C_col.withAlpha(arcAlpha),false)}),arcType:C.ArcType.NONE,clampToGround:false},description:fullDesc});group.srcDot=viewer.entities.add({position:C.Cartesian3.fromDegrees(evt.src.lng,evt.src.lat,1500),point:{pixelSize:isCrit?7:3.5,color:C_col.withAlpha(0.85),outlineColor:C_col.withAlpha(0.25),outlineWidth:isCrit?3:1},description:fullDesc});group.headDot=viewer.entities.add({position:new C.CallbackProperty(()=>headPos,false),point:{pixelSize:isCrit?5:3.5,color:C.Color.WHITE.withAlpha(0.95),outlineColor:C_col.withAlpha(0.5),outlineWidth:1}});let dstAlpha=0;group.dstDot=viewer.entities.add({position:C.Cartesian3.fromDegrees(evt.dst.lng,evt.dst.lat,1500),point:{pixelSize:new C.CallbackProperty(()=>arrived?(isCrit?9:6):0,false),color:new C.CallbackProperty(()=>C_col.withAlpha(dstAlpha),false),outlineColor:new C.CallbackProperty(()=>C_col.withAlpha(dstAlpha*0.3),false),outlineWidth:2},description:fullDesc});this._liveSet.push(group);let startTs=null;const tick=(ts)=>{if(!viewer){this._rmGroup(group);return}if(!startTs)startTs=ts;const e=ts-startTs;if(e<DRAW_MS){const t=e/DRAW_MS,tE=t<0.5?2*t*t:-1+(4-2*t)*t,end=Math.min(Math.round(tE*N),N);drawn=pts.slice(0,end+2);headPos=pts[Math.min(end,N)];arcWidth=width;arcAlpha=alpha;}else if(e<DRAW_MS+HOLD_MS){if(!arrived){arrived=true;dstAlpha=0.9;headPos=pts[N];drawn=pts;this.addLog(evt);}arcWidth=width;arcAlpha=alpha;}else if(e<TOTAL){const ft=(e-DRAW_MS-HOLD_MS)/FADE_MS;arcAlpha=alpha*(1-ft);dstAlpha=0.9*(1-ft);if(arcAlpha<=0.01){this._rmGroup(group);return}}else{this._rmGroup(group);return}group._rafId=requestAnimationFrame(tick)};group._rafId=requestAnimationFrame(tick)},
+
+  _rmGroup(group){if(group._rafId){cancelAnimationFrame(group._rafId);group._rafId=null}[group.arcEnt,group.srcDot,group.headDot,group.dstDot].forEach(e=>{try{if(e)viewer.entities.remove(e)}catch(ex){}});const idx=this._liveSet.indexOf(group);if(idx>-1)this._liveSet.splice(idx,1)},
+
+  _buildFullDesc(evt){const cve=(this.CVE_MAP[evt.type]||[""])[0],mal=(this.MALWARE_MAP[evt.type]||[""])[0],act=(this.ACTOR_MAP[evt.type]||[""])[0];const isCrit=evt.severity==="critical",sc=isCrit?"#ff2d55":"#22c55e";const proto=(this.PROTO_PORT[evt.type]||[{proto:"tcp",app:"http",port:80}])[0];const srcIP=this._genIP("US"),now=new Date().toISOString().slice(0,19).replace("T"," ")+" UTC";return '<div style="background:#000d1f;color:#e2e8f0;padding:14px;border-radius:8px;font-family:\'IBM Plex Mono\',monospace;font-size:11px;max-width:340px;border-left:3px solid '+(evt.color||"#38bdf8")+';line-height:1.6"><div style="font-weight:700;color:'+(evt.color||"#38bdf8")+';font-size:12px;margin-bottom:8px;letter-spacing:1px">'+evt.type.toUpperCase()+' · <span style="color:'+sc+'">'+(evt.severity||"").toUpperCase()+'</span></div><div style="display:grid;grid-template-columns:90px 1fr;color:#64748b"><span>Time</span><span>'+now+'</span><span>Proto</span><span>'+proto.proto.toUpperCase()+' :'+proto.port+'</span><span>Source</span><span style="color:#38bdf8">'+srcIP+'</span><span>From</span><span>'+(evt.src?.name||"?")+'</span><span>To</span><span>'+(evt.dst?.name||"?")+'</span><span>CVE</span><span style="color:#fbbf24">'+cve+'</span><span>Malware</span><span style="color:#f87171">'+mal+'</span><span>Actor</span><span style="color:#a78bfa">'+act+'</span></div></div>'},
+
+  flyToEvent(lat,lng){if(!viewer||!lat||!lng)return;viewer.camera.flyTo({destination:Cesium.Cartesian3.fromDegrees(parseFloat(lng),parseFloat(lat),1400000),orientation:{heading:0,pitch:-Math.PI/2.5,roll:0},duration:1.8})},
+
+  _generateReport(e){
+    const MITRE={webAttackers:[{id:"T1190",name:"Exploit Public-Facing App"},{id:"T1071.001",name:"Web Protocols"}],ddosAttackers:[{id:"T1498",name:"Network DoS"},{id:"T1499",name:"Endpoint DoS"}],intruders:[{id:"T1078",name:"Valid Accounts"},{id:"T1021.004",name:"SSH Remote Services"},{id:"T1059",name:"Command Execution"}],scanners:[{id:"T1595",name:"Active Scanning"},{id:"T1046",name:"Network Service Discovery"}],OAS:[{id:"T1059",name:"Command Execution"},{id:"T1055",name:"Process Injection"}],ODS:[{id:"T1055",name:"Process Injection"},{id:"T1036",name:"Masquerading"}],MAV:[{id:"T1204",name:"User Execution"},{id:"T1566",name:"Phishing"}],WAV:[{id:"T1190",name:"Exploit Public-Facing App"},{id:"T1071.001",name:"Web Protocols"}],IDS:[{id:"T1562",name:"Impair Defenses"},{id:"T1036",name:"Masquerading"}],VUL:[{id:"T1190",name:"Exploit Public-Facing App"},{id:"T1203",name:"Exploitation for Client Execution"}],KAS:[{id:"T1566.001",name:"Spearphishing Attachment"},{id:"T1041",name:"Exfil over C2 Channel"}],RMW:[{id:"T1486",name:"Data Encrypted for Impact"},{id:"T1021",name:"Remote Services"}],shodanDevices:[{id:"T1595",name:"Active Scanning"},{id:"T1046",name:"Network Service Discovery"}]};
+    const NARRATIVE={webAttackers:`Automated exploitation campaign against public-facing web infrastructure. Payload delivery matches <b style="color:#f87171">${e.malware||"Cobalt Strike"}</b> dropper. Session fingerprints overlap with tooling attributed to <b style="color:#a78bfa">${e.actor||"FIN7"}</b>. Reconnaissance phase likely completed — expect lateral movement attempts if initial access succeeds.`,ddosAttackers:`Volumetric UDP flood from distributed botnet cluster. Amplification pattern consistent with <b style="color:#f87171">${e.malware||"Mirai"}</b>. Packet cadence indicates coordinated multi-vector campaign. Source IPs rotate across compromised IoT endpoints. Impact limited to availability — no credential bypass detected.`,intruders:`Credential-based intrusion via <b style="color:#fbbf24">${(e.protocols&&e.protocols[1])||"SSH"}</b>. Brute-force timing and user-agent string match toolset attributed to <b style="color:#a78bfa">${e.actor||"APT29"}</b>. Post-auth pattern suggests automated implant deployment on success. Enforce MFA immediately and audit fail2ban policy.`,scanners:`Systematic port enumeration sweep using <b style="color:#f87171">${e.malware||"Masscan"}</b>. ${e.srcPkts||10} packets detected — velocity indicates distributed pipeline. Target selection suggests interest in exposed management interfaces. Actor attribution confidence: LOW.`,OAS:`Offensive access framework beacon identified. C2 callback pattern matches <b style="color:#f87171">${e.malware||"Redline Stealer"}</b>. <b style="color:#a78bfa">${e.actor||"TA505"}</b> deploys this payload for credential harvesting at scale. Exfiltration via <b style="color:#fbbf24">${e.protocols?e.protocols.join("/").toUpperCase():"TCP/SMB"}</b>. Isolate affected endpoint immediately.`,ODS:`Post-exploitation framework traffic identified. Implant C2 matches <b style="color:#f87171">${e.malware||"Cobalt Strike"}</b> malleable profile. Operator attributed to <b style="color:#a78bfa">${e.actor||"APT41"}</b>. Actor appears to be in dwell phase — persistence may already be established. Full EDR triage required.`,MAV:`Malware delivery via <b style="color:#fbbf24">${(e.protocols&&e.protocols[1])||"SMTP"}</b>. Payload fingerprint matches <b style="color:#f87171">${e.malware||"QakBot"}</b> loader. Campaign tracked to <b style="color:#a78bfa">${e.actor||"TA542"}</b>. Anti-sandbox evasion active — static analysis required. Block sender domain at email gateway immediately.`,WAV:`Web application attack exploiting <b style="color:#fbbf24">${e.cve||"application vulnerability"}</b>. Script injection payload detected in POST body. Infrastructure overlaps with <b style="color:#a78bfa">${e.actor||"FIN7"}</b> known assets. Objective: data exfiltration — audit outbound connections on non-standard ports.`,IDS:`IDS/IPS evasion technique observed. Traffic obfuscation matches <b style="color:#f87171">${e.malware||"Turla"}</b> steganographic C2 profile. <b style="color:#a78bfa">${e.actor||"Turla Group"}</b> conducts long-term espionage campaigns. Evasion via fragmented packets — ensure deep packet inspection is active end-to-end.`,VUL:`Active exploitation of <b style="color:#fbbf24">${e.cve||"CVE-2024-3400"}</b> detected. JNDI injection payload in HTTP headers targeting unpatched instances. Full RCE chain confirmed. Apply vendor patch immediately and scan internal network for all vulnerable instances.`,KAS:`Business Email Compromise (BEC) lure detected. Social engineering via <b style="color:#fbbf24">${(e.protocols&&e.protocols[1])||"SMTP"}</b>. <b style="color:#a78bfa">${e.actor||"Storm-1811"}</b> targets finance and executive accounts. Payload: credential harvesting page spoofing Microsoft 365. Report to anti-phishing team and reset targeted credentials.`,RMW:`Ransomware deployment phase detected. <b style="color:#f87171">${e.malware||"LockBit 3.0"}</b> encryption beacon confirmed. SMB lateral propagation via <b style="color:#fbbf24">${e.cve||"EternalBlue variant"}</b>. CRITICAL — initiate IR protocol immediately. Isolate affected segment, disable SMB network-wide, and preserve forensic images before any cleanup.`,shodanDevices:`Internet-exposed device indexed by public Shodan scanner. Management interface is publicly accessible. <b style="color:#f87171">${e.malware||"Mirai"}</b> botnet actively targets devices discovered via Shodan. Remove admin interfaces from public internet and enforce VPN-only access immediately.`};
+    const RESPONSE={webAttackers:["Block source IP at perimeter firewall","Review WAF rules for this exploit signature","Rate-limit POST requests to sensitive endpoints","Audit successful auth events from this source range"],ddosAttackers:["Activate upstream DDoS mitigation service","Enable BGP blackhole routing if available","Rate-limit UDP at edge router","Contact ISP for upstream filtering assistance"],intruders:["Enforce MFA on all remote access immediately","Rotate credentials for accounts on affected hosts","Audit auth logs for successful logins from this IP range","Enable geo-blocking for out-of-scope regions"],scanners:["Block scanning IP range at firewall","Audit exposed ports — close unnecessary services","Enable port-scan detection rules in SIEM","Validate public attack surface against asset inventory"],OAS:["Isolate endpoint from network segment","Terminate suspicious processes and collect memory dump","Submit IOC hash to threat intelligence platform","Run full EDR scan with updated definitions"],ODS:["Initiate full incident response protocol","Preserve memory dump before any remediation","Hunt for persistence (registry, cron, startup services)","Reset all credentials on affected system"],MAV:["Block sender domain at email gateway","Deploy YARA rule for this malware family","Scan all endpoints for payload indicators","Notify users — active phishing campaign in progress"],WAV:["Patch web application to remediate vulnerability","Review logs for successful injections this session","Implement Content-Security-Policy headers","Rotate API keys and all active session tokens"],IDS:["Enable deep packet inspection on affected host","Audit all outbound connections for C2 callback patterns","Check for DNS tunneling indicators from this source","Update IDS signatures with new evasion TTPs"],VUL:["Apply vendor security patch immediately","Deploy WAF virtual patch as interim measure","Scan network for all instances of vulnerable software","Review historical logs for prior exploitation attempts"],KAS:["Report to anti-phishing team and block sending domain","Reset credentials for all targeted account(s)","Inspect email gateway for similar lures from this campaign","Brief targeted users on BEC indicators of compromise"],RMW:["CRITICAL: Isolate affected machines from network NOW","Disable SMB sharing across the entire environment","Activate incident response retainer","Preserve forensic images — do not wipe systems yet","Notify legal/compliance if data exfiltration is confirmed"],shodanDevices:["Remove management interfaces from public internet","Enforce VPN-only device administration access","Change all default credentials immediately","Restrict device access with firewall rules to known IPs"]};
+    const mitre=MITRE[e.type]||[{id:"T1000",name:"Unknown Technique"}];
+    const narrative=NARRATIVE[e.type]||`Threat event classified as <b>${e.classification}</b> originating from ${e.srcCountry}. Type: ${e.type}. Manual analyst review recommended.`;
+    const steps=RESPONSE[e.type]||["Review security logs","Apply relevant patches","Escalate to security team"];
+    const sevC=e.severity==="critical"?"#ff2d55":e.severity==="high"?"#ff9f0a":e.severity==="medium"?"#38bdf8":"#22c55e";
+    const risk=e.severity==="critical"?95:e.severity==="high"?76:e.severity==="medium"?52:28;
+    const col=e.color||"#38bdf8";
+    const sLat=parseFloat(e.srcLat||0),sLng=parseFloat(e.srcLng||0),dLat=parseFloat(e.dstLat||0),dLng=parseFloat(e.dstLng||0);
+    return `<div class="clog-report"><div class="clog-report-hdr"><span class="clog-report-tag" style="color:${col};border-color:${col}44">⚡ AGENT ANALYSIS</span><span class="clog-report-tag" style="color:${sevC};border-color:${sevC}44">RISK ${risk}/100</span><span class="clog-report-tag" style="color:#475569;border-color:#1e3a5f">SID ${e.sigId||"—"}</span></div><div class="clog-section"><div class="clog-section-label">NETWORK FORENSICS</div><div class="clog-grid2"><span class="cg-k">Source IP</span><span class="cg-v" style="color:#38bdf8">${e.srcIP}:${e.srcPort}</span><span class="cg-k">Protocol</span><span class="cg-v">${e.protocols?e.protocols.join(" / ").toUpperCase():"TCP"} → :${e.dstPort}</span><span class="cg-k">Origin</span><span class="cg-v">${e.srcCountry} (${e.srcLat}, ${e.srcLng})</span><span class="cg-k">Target</span><span class="cg-v">${e.dstCountry} (${e.dstLat}, ${e.dstLng})</span><span class="cg-k">TCP Flags</span><span class="cg-v">SYN:${e.flags&&e.flags.syn||0} ACK:${e.flags&&e.flags.ack||0} PSH:${e.flags&&e.flags.psh||0}</span><span class="cg-k">Traffic</span><span class="cg-v">${e.totalPkts||18} pkts / ${(((e.totalBytes||2000)/1024)).toFixed(1)} KB · RTT ${e.rtt||"?"}ms</span><span class="cg-k">Session</span><span class="cg-v" style="font-size:0.5rem;color:#334155">${(e.sessionId||"").slice(0,26)}…</span></div></div><div class="clog-section"><div class="clog-section-label">IOC SUMMARY</div><div class="clog-grid2">${e.cve?`<span class="cg-k">CVE</span><span class="cg-v" style="color:#fbbf24">${e.cve}</span>`:""}${e.malware?`<span class="cg-k">Malware</span><span class="cg-v" style="color:#f87171">${e.malware}</span>`:""}${e.actor?`<span class="cg-k">Actor</span><span class="cg-v" style="color:#a78bfa">${e.actor}</span>`:""}<span class="cg-k">IOC</span><span class="cg-v" style="color:#38bdf8">${e.ioc||e.srcIP}</span><span class="cg-k">Signature</span><span class="cg-v">${e.sigName||"—"} (SID ${e.sigId||"?"})</span><span class="cg-k">Feed</span><span class="cg-v">${e.source||"OSINT"}</span></div></div><div class="clog-section"><div class="clog-section-label">MITRE ATT&amp;CK</div><div style="display:flex;gap:4px;flex-wrap:wrap;padding:2px 0 4px">${mitre.map(t=>`<span style="background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.28);color:#a78bfa;font-size:0.53rem;padding:2px 7px;border-radius:3px;white-space:nowrap"><b>${t.id}</b> · ${t.name}</span>`).join("")}</div></div><div class="clog-section"><div class="clog-section-label">ANALYST ASSESSMENT</div><div class="clog-narrative">${narrative}</div></div><div class="clog-section"><div class="clog-section-label" style="color:rgba(34,197,94,0.5)">RECOMMENDED RESPONSE</div><div class="clog-response-list">${steps.map((r,i)=>`<div class="clog-response-item"><span style="color:#22c55e;font-weight:700;flex-shrink:0">${String(i+1).padStart(2,"0")}</span><span>${r}</span></div>`).join("")}</div></div><div style="padding:6px 10px 8px;display:flex;gap:6px;border-top:1px solid rgba(255,255,255,0.04)"><button class="clog-action-btn" onclick="CYBER.flyToEvent(${sLat},${sLng})">📍 Fly to Origin</button><button class="clog-action-btn" onclick="CYBER.flyToEvent(${dLat},${dLng})">🎯 Fly to Target</button></div></div>`;
+  },
+
+  addLog(evt){const now=new Date(),tsShort=now.toISOString().slice(0,19).replace("T"," ")+" UTC",type=evt.type||"unknown";const cvePool=this.CVE_MAP[type]||[""],malwarePool=this.MALWARE_MAP[type]||[""],actorPool=this.ACTOR_MAP[type]||[""];const protos=this.PROTO_PORT[type]||[{proto:"tcp",app:"http",port:80}],flags=this.TCP_FLAGS[type]||{syn:1,ack:2,psh:1},sigs=this.SURICATA_SIGS[type]||[];const srcCC="US",dstCC="US";const srcIP=this._genIP("US"),srcPort=1024+Math.floor(Math.random()*60000);const proto=protos[Math.floor(Math.random()*protos.length)],dstPort=proto.port;const sig=sigs[Math.floor(Math.random()*sigs.length)]||{id:1000001,name:"Alert",cat:"Policy",sev:3};const pick=(pool,i)=>Array.isArray(pool)&&pool.length?pool[(i||Math.floor(Math.random()*pool.length))%pool.length]:"";const srcGeo=this.ipToApproxGeo(srcIP);const dstLatRaw=evt.dst?.lat||0,dstLngRaw=evt.dst?.lng||0;const entry={tsShort,color:this.COLORS[type]||"#94a3b8",type,severity:evt.severity||"medium",classification:{critical:"malicious",high:"malicious",medium:"suspicious"}[(evt.severity||"medium")]||"suspicious",protocols:[proto.proto,proto.app],srcIP,srcPort,srcCountry:evt.src?.name||srcGeo.name||"US",srcCC,srcCity:"?",srcRegion:"?",srcLat:(srcGeo.lat||0).toFixed(4),srcLng:(srcGeo.lng||0).toFixed(4),srcAsn:"AS0000",srcOrg:"Unknown",srcTtl:64,dstPort,dstCountry:evt.dst?.name||"US",dstCC,dstCity:"?",dstRegion:"?",dstLat:(dstLatRaw+(Math.random()-0.5)*4).toFixed(4),dstLng:(dstLngRaw+(Math.random()-0.5)*4).toFixed(4),dstTtl:128,flags,srcPkts:10,dstPkts:8,totalBytes:2000,totalPkts:18,rtt:50,sessionId:this._hex(30),sigId:sig.id,sigName:sig.name,sigCat:sig.cat,sigSev:sig.sev,ja4l:"?",ioc:evt.ioc||srcIP,cvePool,cve:pick(cvePool),malwarePool,malware:pick(malwarePool),actorPool,actor:pick(actorPool),allCVEs:cvePool,allMalwares:malwarePool,allActors:actorPool,desc:evt.desc||"—",source:evt.source||"OSINT"};this.logEntries.unshift(entry);if(this.logEntries.length>500)this.logEntries.pop();this._prependLogRow(entry);const c1=document.getElementById("log-entry-count"),c2=document.getElementById("log-nav-count");if(c1)c1.textContent=this.logEntries.length+" events";if(c2)c2.textContent=this.logEntries.length;if(this.logEntries.length>0){const btn=document.getElementById("cyber-log-toggle");if(btn)btn.style.display="inline-flex"}},
+
+  _prependLogRow(e,prepend=true){const panel=document.getElementById("cyber-log-panel");if(!panel)return;const idStr="clog-"+Date.now()+"-"+Math.random().toString(36).slice(2,7);const sevC=e.severity==="critical"?"#ff2d55":e.severity==="high"?"#ff9f0a":e.severity==="medium"?"#38bdf8":"#22c55e";const clsC=e.classification==="malicious"?"#ff2d55":e.classification==="suspicious"?"#f59e0b":"#22c55e";const protoStr=((e.protocols||[]).join(" · ").toUpperCase()||"TCP");const methodStr=(e.protocols||[]).length>1?(e.protocols[1].toUpperCase()+" "+(e.protocols[0].toUpperCase()==="UDP"?"FLOOD":"CONNECT")+" :"+(e.dstPort||"?")):"";const flags=e.flags||{};const flagHtml=Object.entries(flags).filter(([k,v])=>v>0).map(([k,v])=>'<span style="color:'+(k==="syn"?"#f59e0b":k==="rst"?"#ff2d55":k==="ack"?"#22c55e":"#94a3b8")+';font-weight:600">'+k.toUpperCase()+":"+v+'</span>').join("  ");const allCves=(e.allCVEs||[e.cve]).filter(Boolean).map(c=>'<span style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);color:#fbbf24;font-size:0.48rem;padding:0 4px;border-radius:2px;margin:1px 1px;display:inline-block">'+c+'</span>').join("");const allMalwares=(e.allMalwares||[e.malware]).filter(Boolean).map(m=>'<span style="background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.2);color:#f87171;font-size:0.48rem;padding:0 4px;border-radius:2px;margin:1px 1px;display:inline-block">'+m+'</span>').join("");const allActors=(e.allActors||[e.actor]).filter(Boolean).map(a=>'<span style="background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.2);color:#a78bfa;font-size:0.48rem;padding:0 4px;border-radius:2px;margin:1px 1px;display:inline-block">'+a+'</span>').join("");const enc=e=>String(e).replace(/\\/g,"\\\\").replace(/'/g,"\\'").replace(/"/g,"&quot;");const row=document.createElement("div");row.className=prepend?"clog-row clog-new":"clog-row";row.id=idStr;row.style.borderLeftColor=e.color;row.innerHTML='<div class="clog-session-hdr" onclick="toggleLogRow(\''+idStr+'\','+(e.dstLat||0)+','+(e.dstLng||0)+',event)"><span class="clog-ts2">'+(e.tsShort||"")+'</span><span class="clog-type-badge" style="background:'+e.color+'1a;color:'+e.color+';border:1px solid '+e.color+'44">'+e.type.toUpperCase()+'</span><span class="clog-sev2" style="background:'+sevC+'18;color:'+sevC+';border:1px solid '+sevC+'44">'+(e.severity||"").toUpperCase()+'</span><span class="clog-cls" style="background:'+clsC+'18;color:'+clsC+';border:1px solid '+clsC+'33">'+(e.classification||"")+'</span><span class="clog-summary">'+(e.srcIP||e.srcCountry||"?")+" → "+(e.dstCountry||"?")+" :"+(e.dstPort||"?")+'</span></div><div class="clog-detail"><div style="padding:4px 10px;background:rgba(0,0,0,0.35);border-bottom:1px solid rgba(255,255,255,0.05);display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span style="font-size:0.55rem;color:#1e3a5f">⬡ '+(e.sessionId||"").slice(0,28)+'...</span><span style="font-size:0.55rem;color:#334155">'+protoStr+'</span><span style="font-size:0.55rem;color:#1e3a5f;margin-left:auto">TTL '+(e.srcTtl||"?")+"/"+(e.dstTtl||"?")+'</span></div><div class="clog-cols"><div class="clog-left"><div class="clog-section"><div class="clog-section-title" style="color:#ff6b35">▶ Source</div><div style="display:grid;grid-template-columns:60px 1fr;gap:1px 8px;font-size:0.58rem"><span style="color:#334155">Org</span><span>'+(e.srcOrg||"?")+'</span><span style="color:#334155">Country</span><span><span style="background:rgba(56,189,248,0.1);color:#38bdf8;font-size:0.5rem;padding:0 3px;border-radius:2px">'+(e.srcCC||"?")+'</span> '+(e.srcCountry||"?")+'</span><span style="color:#334155">IP:Port</span><span style="color:#38bdf8;cursor:pointer" onclick="event.stopPropagation();navigator.clipboard.writeText(\''+(e.srcIP||"")+'\');showToast(\'Copied\',\'#22c55e\')">'+(e.srcIP||"?")+':<span style="color:#f59e0b">'+(e.srcPort||"?")+'</span></span><span style="color:#334155">ASN</span><span style="color:#38bdf8">'+(e.srcAsn||"?")+'</span><span style="color:#334155">Lat/Lng</span><span>'+(e.srcLat||"?")+","+(e.srcLng||"?")+'</span></div></div><div class="clog-section"><div class="clog-section-title" style="color:#22c55e">◉ Dest</div><div style="display:grid;grid-template-columns:60px 1fr;gap:1px 8px;font-size:0.58rem"><span style="color:#334155">Org</span><span>'+(e.dstOrg||"?")+'</span><span style="color:#334155">Country</span><span><span style="background:rgba(56,189,248,0.1);color:#38bdf8;font-size:0.5rem;padding:0 3px;border-radius:2px">'+(e.dstCC||"?")+'</span> '+(e.dstCountry||"?")+'</span><span style="color:#334155">Port</span><span style="color:#f59e0b">:'+(e.dstPort||"?")+'</span><span style="color:#334155">ASN</span><span style="color:#38bdf8">'+(e.dstAsn||"?")+'</span><span style="color:#334155">Lat/Lng</span><span>'+(e.dstLat||"?")+","+(e.dstLng||"?")+'</span></div></div><div class="clog-section"><div class="clog-section-title" style="color:#06b6d4">⟶ TCP</div><div style="display:grid;grid-template-columns:60px 1fr;gap:1px 8px;font-size:0.58rem"><span style="color:#334155">Flags</span><span>'+flagHtml+'</span><span style="color:#334155">Packets</span><span>'+(e.srcPkts||0)+"/"+(e.dstPkts||0)+" · "+(e.totalBytes||0).toLocaleString()+"B</span><span style='color:#334155'>RTT</span><span>"+(e.rtt||0)+" ms</span><span style='color:#334155'>JA4l</span><span style='color:#475569'>"+(e.ja4l||"?")+'</span></div></div>'+(e.isSSH?'<div class="clog-section"><div class="clog-section-title" style="color:#a78bfa">🔑 SSH</div><div style="display:grid;grid-template-columns:60px 1fr;gap:1px 8px;font-size:0.58rem"><span style="color:#334155">HASSH</span><span style="color:#475569">'+(e.hassh||"?")+'</span></div></div>':"")+'</div><div class="clog-right"><div class="clog-section"><div class="clog-section-title" style="color:#f59e0b">⚡ Suricata</div><div style="display:grid;grid-template-columns:60px 1fr;gap:1px 8px;font-size:0.58rem"><span style="color:#334155">Flow ID</span><span style="color:#475569">'+(e.flowId||"?")+'</span><span style="color:#334155">Signature</span><span style="font-size:0.55rem">'+(e.sigName||"?")+'</span><span style="color:#334155">Sev</span><span style="color:'+(e.sigSev===1?"#ff2d55":e.sigSev===2?"#f59e0b":"#94a3b8")+'">'+(e.sigSev||3)+'</span></div></div><div class="clog-section"><div class="clog-section-title" style="color:#ff2d55">🧠 Intel — Correlated</div><div style="display:grid;grid-template-columns:54px 1fr;gap:1px 6px;font-size:0.58rem"><span style="color:#334155">CVEs</span><span>'+allCves+'</span><span style="color:#334155">Malware</span><span>'+allMalwares+'</span><span style="color:#334155">Actors</span><span>'+allActors+'</span><span style="color:#334155">IOC</span><span style="color:#06b6d4;font-size:0.55rem;word-break:break-all">'+(e.ioc||"—")+'</span><span style="color:#334155">Source</span><span style="color:#64748b;font-size:0.52rem">'+(e.source||"OSINT")+'</span></div></div><div class="clog-section"><div class="clog-section-title" style="color:#64748b">📋 General</div><div style="display:grid;grid-template-columns:54px 1fr;gap:1px 6px;font-size:0.58rem"><span style="color:#334155">Time</span><span>'+(e.tsShort||"?")+'</span><span style="color:#334155">Method</span><span style="color:'+(e.protocols?.[0]==="udp"?"#ff9f0a":"#38bdf8")+';font-weight:600;font-size:0.6rem">'+(methodStr||protoStr)+'</span><span style="color:#334155">Proto</span><span>'+protoStr+'</span></div></div><div style="display:flex;gap:5px;padding:5px 0;flex-wrap:wrap"><button onclick="event.stopPropagation();sendToAgentInvestigation(document.getElementById(\''+idStr+'\')._cyberEntry||{id:\''+e.sessionId+'\',type:\''+e.type+'\',severity:\''+e.severity+'\',color:\''+e.color+'\',srcIP:\''+(e.srcIP||"")+'\',srcPort:\''+(e.srcPort||"")+'\',srcCountry:\''+(e.srcCountry||"")+'\',srcLat:'+(e.srcLat||0)+',srcLng:'+(e.srcLng||0)+',dstCountry:\''+(e.dstCountry||"")+'\',dstPort:\''+(e.dstPort||"")+'\',dstLat:'+(e.dstLat||0)+',dstLng:'+(e.dstLng||0)+',cve:\''+(e.cve||"")+'\',malware:\''+(e.malware||"")+'\',actor:\''+(e.actor||"")+'\',ioc:\''+(e.ioc||"")+'\',protocols:[\''+((e.protocols||[])[0]||"")+'\',\''+((e.protocols||[])[1]||"")+'\'],desc:\''+enc(e.desc||"")+'\'})" style="background:linear-gradient(135deg,rgba(167,139,250,0.2),rgba(99,102,241,0.2));border:1px solid rgba(167,139,250,0.4);color:#c4b5fd;font-size:0.58rem;padding:5px 12px;border-radius:4px;cursor:pointer;font-family:\'IBM Plex Mono\',monospace">🤖 Send to Investigations</button><button onclick="event.stopPropagation();CYBER.flyToEvent('+(e.srcLat||0)+','+(e.srcLng||0)+')" style="background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.25);color:#38bdf8;font-size:0.58rem;padding:4px 10px;border-radius:4px;cursor:pointer;font-family:\'IBM Plex Mono\',monospace">🌐 Src</button><button onclick="event.stopPropagation();CYBER.flyToEvent('+(e.dstLat||0)+','+(e.dstLng||0)+')" style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);color:#22c55e;font-size:0.58rem;padding:4px 10px;border-radius:4px;cursor:pointer;font-family:\'IBM Plex Mono\',monospace">🎯 Dst</button><button onclick="event.stopPropagation();navigator.clipboard.writeText(\''+(e.srcIP||"")+" "+(e.cve||"")+" "+(e.malware||"")+" "+(e.actor||"")+'\');showToast(\'Intel copied\',\'#22c55e\')" style="background:rgba(100,116,139,0.1);border:1px solid rgba(100,116,139,0.25);color:#64748b;font-size:0.58rem;padding:4px 10px;border-radius:4px;cursor:pointer;font-family:\'IBM Plex Mono\',monospace">📋 Copy</button></div></div></div></div>';row._cyberEntry=e;if(prepend){panel.insertBefore(row,panel.firstChild);setTimeout(()=>row.classList.remove("clog-new"),600);while(panel.children.length>120)panel.removeChild(panel.lastChild)}else{panel.appendChild(row)}},
+
+  updateRightPanelStats(){const el=document.getElementById("cyber-stats-panel");if(!el)return;const total=this.events.length,crit=this.events.filter(e=>e.severity==="critical").length;el.innerHTML='<div style="font-size:0.58rem;color:#334155;letter-spacing:2px;margin-bottom:8px">CYBER THREAT STATS</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px"><div style="background:rgba(0,0,0,0.3);border-radius:5px;padding:6px;text-align:center"><div style="font-size:1.1rem;font-weight:700;color:#06b6d4">'+total+'</div><div style="font-size:0.58rem;color:#334155">TOTAL</div></div><div style="background:rgba(0,0,0,0.3);border-radius:5px;padding:6px;text-align:center"><div style="font-size:1.1rem;font-weight:700;color:#ff2d55">'+crit+'</div><div style="font-size:0.58rem;color:#334155">CRITICAL</div></div></div>'+(total>0?'<div style="margin-top:8px;font-size:0.58rem;color:#1e3a5f">Sources: CISA · GDELT · DShield · OSINT</div>':'')},
+
+  getTooltipFor(e){return '<div style="background:#000d1f;color:#e2e8f0;padding:10px;border-radius:6px;font-size:11px;border-left:2px solid '+(this.COLORS[e.type]||"#fff")+'">'+(e.type||"")+" <b>"+(e.severity||"")+'</b></div>'}
+};
+
+// ─── LOG CONTROLS ─────────────────────────────────────────────────────────────
+let _logFilterType = "ALL";
+let _logExpanded = false;
+
+function toggleCyberLog(){const w=document.getElementById("cyber-log-wrap");if(!w)return;w.classList.toggle("visible");const btn=document.getElementById("cyber-log-toggle");if(btn)btn.style.background=w.classList.contains("visible")?"rgba(255,45,85,0.25)":"rgba(255,45,85,0.1)";}
+function closeCyberLog(){document.getElementById("cyber-log-wrap")?.classList.remove("visible");}
+function toggleLogExpand(){_logExpanded=!_logExpanded;document.getElementById("cyber-log-wrap")?.classList.toggle("expanded",_logExpanded);document.querySelectorAll(".clh-btn").forEach(b=>{if(b.textContent.includes("EXPAND")||b.textContent.includes("COLLAPSE"))b.textContent=_logExpanded?"⬇ COLLAPSE":"⬆ EXPAND";});}
+function toggleLogRow(id,lat,lng,event){if(event&&event.target.tagName==="BUTTON")return;if(event&&event.target.closest("button"))return;const row=document.getElementById(id);if(!row)return;const wasExpanded=row.classList.contains("expanded");document.querySelectorAll(".clog-row.expanded").forEach(r=>{if(r!==row)r.classList.remove("expanded")});row.classList.toggle("expanded",!wasExpanded);if(!wasExpanded&&lat&&lng)CYBER.flyToEvent(lat,lng);}
+function filterLog(type,el){document.querySelectorAll(".clh-filter").forEach(f=>f.classList.remove("active"));if(el)el.classList.add("active");_logFilterType=type;const e=(_logFilterType==="ALL"?CYBER.logEntries:CYBER.logEntries.filter(e=>e.type===_logFilterType)).slice(0,100);const panel=document.getElementById("cyber-log-panel");if(!panel)return;if(!e.length){panel.innerHTML='<div style="text-align:center;padding:24px;color:#1e3a5f;font-size:0.65rem">No events</div>';return}panel.innerHTML="";e.forEach(en=>CYBER._prependLogRow(en,false));}
+function clearCyberLog(){CYBER.logEntries=[];const panel=document.getElementById("cyber-log-panel");if(panel)panel.innerHTML='<div style="text-align:center;padding:20px;color:#1e3a5f;font-size:0.65rem">No events</div>';const c1=document.getElementById("log-entry-count"),c2=document.getElementById("log-nav-count");if(c1)c1.textContent="0 events";if(c2)c2.textContent="0";}
+function exportCyberLog(){const rows=["session_id,timestamp,type,severity,classification,src_ip,src_port,src_country,dst_country,dst_port,cve,all_cves,malware,all_malwares,actor,all_actors,ioc,source,protocol,method",...CYBER.logEntries.map(e=>'"'+(e.sessionId||"")+'","'+(e.tsShort||"")+'","'+e.type+'","'+e.severity+'","'+(e.classification||"")+'","'+(e.srcIP||"")+'","'+(e.srcPort||"")+'","'+(e.srcCountry||"")+'","'+(e.dstCountry||"")+'","'+(e.dstPort||"")+'","'+(e.cve||"")+'","'+((e.allCVEs||[]).join(";"))+'","'+(e.malware||"")+'","'+((e.allMalwares||[]).join(";"))+'","'+(e.actor||"")+'","'+((e.allActors||[]).join(";"))+'","'+(e.ioc||"")+'","'+(e.source||"")+'","'+((e.protocols||[]).join("/"))+'","'+((e.protocols||[])[1]?.toUpperCase()+" "+(e.protocols?.[0]==="udp"?"FLOOD":"CONNECT")+":"+(e.dstPort||""))+'")')].join("\n");const a=Object.assign(document.createElement("a"),{href:URL.createObjectURL(new Blob([rows],{type:"text/csv"})),download:"opxdr_cyber_log_"+new Date().toISOString().slice(0,19).replace(/:/g,"-")+".csv"});a.click();showToast("⬇ Exported "+CYBER.logEntries.length+" events","#22c55e");}
+
+// ─── INVESTIGATIONS TAB ────────────────────────────────────────────────────────
+const _investigations = [];
+let _investAutoId = 0;
+
+function sendToAgentInvestigation(entry){
+  if(!entry||!entry.type) return;
+  const id = "inv-" + (++_investAutoId) + "-" + Date.now().toString(36);
+  const item = { id, ts: new Date().toISOString(), entry: JSON.parse(JSON.stringify(entry)), status: "pending", agentResult: null, agentLoading: false };
+  _investigations.unshift(item);
+  if(_investigations.length > 50) _investigations.pop();
+  const badge = document.getElementById("invest-badge");
+  if(badge){ badge.textContent = _investigations.length; badge.style.display = "inline"; }
+  showToast("📋 Sent to Investigations tab — " + (entry.type||"").toUpperCase() + " event", "#a855f7");
+  const rpTab = document.querySelector('.rp-tab[onclick*="investigations"]');
+  if(rpTab) switchRPTab(rpTab, "investigations");
+}
+
+function renderInvestigations(){
+  const el = document.getElementById("rp-content");
+  if(!_investigations.length){
+    el.innerHTML = '<div class="rp-section-label">INVESTIGATIONS</div><div style="background:rgba(167,139,250,0.05);border:1px solid rgba(167,139,250,0.15);border-radius:8px;padding:20px;text-align:center;color:#475569;font-size:0.68rem;font-family:\'IBM Plex Mono\',monospace">No investigations yet.<br>Click <span style="color:#a855f7;font-weight:700">🤖 Send to Agent</span> on any cyber log row to start.</div>';
+    return;
+  }
+  let html = '<div class="rp-section-label">INVESTIGATIONS <span style="color:#334155;font-weight:400;font-size:0.55rem">(' + _investigations.length + ' pending)</span></div>';
+  _investigations.forEach((inv, idx) => {
+    const e = inv.entry;
+    const sevC = e.severity==="critical"?"#ff2d55":e.severity==="high"?"#ff9f0a":e.severity==="medium"?"#38bdf8":"#22c55e";
+    const color = e.color || CYBER.COLORS[e.type] || "#a855f7";
+    const ts = new Date(inv.ts).toLocaleTimeString("en-GB");
+    html += '<div style="background:rgba(167,139,250,0.04);border:1px solid rgba(167,139,250,0.12);border-radius:6px;padding:8px;margin-bottom:6px">'
+      + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">'
+      + '<span class="clog-type-badge" style="background:'+color+'1a;color:'+color+';border:1px solid '+color+'44">'+(e.type||"").toUpperCase()+'</span>'
+      + '<span class="clog-sev2" style="background:'+sevC+'18;color:'+sevC+';border:1px solid '+sevC+'44">'+(e.severity||"").toUpperCase()+'</span>'
+      + '<span style="font-size:0.52rem;color:#334155;margin-left:auto">'+ts+'</span></div>'
+      + '<div style="display:grid;grid-template-columns:50px 1fr;gap:1px 6px;font-size:0.58rem;margin-bottom:6px">'
+      + '<span style="color:#334155">Src</span><span style="color:#38bdf8">'+(e.srcIP||e.srcCountry||"?")+'</span>'
+      + '<span style="color:#334155">Dst</span><span style="color:#22c55e">'+(e.dstCountry||"?")+":"+(e.dstPort||"?")+'</span>'
+      + '<span style="color:#334155">CVE</span><span style="color:#fbbf24">'+(e.cve||"—")+'</span>'
+      + '<span style="color:#334155">Malware</span><span style="color:#f87171">'+(e.malware||"—")+'</span>'
+      + '<span style="color:#334155">Actor</span><span style="color:#a78bfa">'+(e.actor||"—")+'</span>'
+      + '<span style="color:#334155">IOC</span><span style="color:#06b6d4">'+(e.ioc||"—")+'</span>'
+      + '</div>'
+      + '<div style="display:flex;gap:4px;flex-wrap:wrap">'
+      + '<button onclick="runInvestigation(\''+inv.id+'\')" style="flex:1;background:linear-gradient(135deg,rgba(167,139,250,0.2),rgba(99,102,241,0.2));border:1px solid rgba(167,139,250,0.4);color:#c4b5fd;font-size:0.58rem;padding:5px 8px;border-radius:4px;cursor:pointer;font-family:\'IBM Plex Mono\',monospace;white-space:nowrap">🤖 Investigate</button>'
+      + '<button onclick="CYBER.flyToEvent('+(e.srcLat||0)+','+(e.srcLng||0)+')" style="background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.25);color:#38bdf8;font-size:0.58rem;padding:4px 8px;border-radius:4px;cursor:pointer;font-family:\'IBM Plex Mono\',monospace">🌐 Src</button>'
+      + '<button onclick="_investigations.splice('+idx+',1);renderInvestigations();updateInvestBadge()" style="background:rgba(100,116,139,0.1);border:1px solid rgba(100,116,139,0.25);color:#64748b;font-size:0.58rem;padding:4px 8px;border-radius:4px;cursor:pointer;font-family:\'IBM Plex Mono\',monospace">✕</button>'
+      + '</div>'
+      + (inv.agentLoading?'<div style="margin-top:6px;padding:6px;background:rgba(167,139,250,0.06);border-radius:4px;color:#a78bfa;font-size:0.55rem;font-family:monospace;animation:pulse 1.5s infinite">⚡ Agent investigating...</div>':'')
+      + (inv.agentResult?'<div style="margin-top:6px;padding:6px;background:rgba(0,20,40,0.6);border-radius:4px;color:#cbd5e1;font-size:0.55rem;font-family:monospace;max-height:120px;overflow-y:auto">'+inv.agentResult.replace(/\n/g,"<br>")+'</div>':'')
+      + '</div>';
+  });
+  el.innerHTML = html;
+}
+
+function updateInvestBadge(){
+  const badge = document.getElementById("invest-badge");
+  if(badge){ badge.textContent = _investigations.length; badge.style.display = _investigations.length?"inline":"none"; }
+}
+
+async function runInvestigation(id){
+  const inv = _investigations.find(i => i.id === id);
+  if(!inv || inv.agentLoading) return;
+  inv.agentLoading = true;
+  inv.agentResult = null;
+  renderInvestigations();
+  try {
+    const e = inv.entry;
+    const sys = "You are a SOC analyst. Investigate this cyber threat event and produce: TRIAGE, ATTACK VECTOR, CONTAINMENT, IOCs, and RECOMMENDATION.";
+    const msgs = [{ role: "user", content: "Investigate: type="+(e.type||"")+" severity="+(e.severity||"")+" srcIP="+(e.srcIP||"")+" dst="+(e.dstCountry||"")+":"+(e.dstPort||"")+" cve="+(e.cve||"")+" malware="+(e.malware||"")+" actor="+(e.actor||"")+" ioc="+(e.ioc||"") }];
+    const res = await fetch("/api/claude", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ system: sys, messages: msgs })
+    });
+    if(!res.ok) throw new Error("Agent API error: "+res.status);
+    const data = await res.json();
+    inv.agentResult = data.content?.[0]?.text || data.response || JSON.stringify(data);
+    inv.status = "completed";
+  } catch(e){
+    inv.agentResult = "[Agent error: "+e.message+"]";
+    inv.status = "error";
+  }
+  inv.agentLoading = false;
+  renderInvestigations();
+}
+
+// ─── STARTUP ─────────────────────────────────────────────────────────────────
+const hasStoredKeys = API_CONFIGS.some(cfg => getApiKey(cfg.id));
+if(hasStoredKeys) launchGlobe(); else showApiRegistry();
+buildLayersList(); buildRightPanel(); startClock(); startFPS();
+</script></body></html>

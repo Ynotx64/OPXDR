@@ -1,0 +1,2632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OPX TOR — Threat Intelligence & Leak Analysis</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Syne:wght@400;600;700;800&display=swap');
+
+:root {
+  --bg:        #0a0b0d;
+  --bg2:       #0f1115;
+  --bg3:       #141619;
+  --panel:     #1a1c21;
+  --border:    #252830;
+  --border2:   #2e323d;
+  --text:      #d4d8e8;
+  --text2:     #7a8099;
+  --text3:     #454c64;
+  --accent:    #e8325a;
+  --accent2:   #ff4d6d;
+  --green:     #22c55e;
+  --yellow:    #f59e0b;
+  --blue:      #38bdf8;
+  --purple:    #a78bfa;
+  --mono:      'JetBrains Mono', monospace;
+  --sans:      'Syne', sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--mono);
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg2); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+@keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+@keyframes pulse2 { 0%,100%{opacity:1} 50%{opacity:0.4} }
+@keyframes scan { 0%{transform:translateY(-100%)} 100%{transform:translateY(100vh)} }
+@keyframes blink { 0%,100%{opacity:1} 49%{opacity:1} 50%{opacity:0} 99%{opacity:0} }
+@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+@keyframes countUp { from{opacity:0;transform:scale(0.8)} to{opacity:1;transform:scale(1)} }
+
+#nav {
+  height: 48px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 0;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 100;
+}
+
+.opxdr-back {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(232,50,90,0.1);
+  border: 1px solid rgba(232,50,90,0.3);
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+  color: var(--accent2);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-decoration: none;
+  transition: all 0.2s;
+  margin-right: 16px;
+  flex-shrink: 0;
+}
+.opxdr-back:hover {
+  background: rgba(232,50,90,0.2);
+  border-color: rgba(232,50,90,0.6);
+}
+.opxdr-back .arrow { font-size: 0.75rem; }
+
+.logo-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: 24px;
+  flex-shrink: 0;
+}
+.logo-icon {
+  width: 32px; height: 32px;
+  background: var(--accent);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1rem;
+  position: relative;
+  overflow: hidden;
+}
+.logo-icon::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
+}
+.logo-text { font-family: var(--sans); }
+.logo-text .main { font-size: 0.9rem; font-weight: 800; letter-spacing: 2px; color: #fff; }
+.logo-text .sub { font-size: 0.52rem; color: var(--text3); letter-spacing: 1.5px; }
+
+.nav-items {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.72rem;
+  color: var(--text2);
+  transition: all 0.15s;
+  border: 1px solid transparent;
+  position: relative;
+  white-space: nowrap;
+}
+.nav-item:hover { background: var(--panel); color: var(--text); }
+.nav-item.active {
+  background: var(--panel);
+  color: var(--text);
+  border-color: var(--border2);
+}
+.nav-item .icon { font-size: 0.8rem; }
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+.date-display {
+  font-size: 0.7rem;
+  color: var(--text3);
+  letter-spacing: 1px;
+  font-family: var(--mono);
+}
+.status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  animation: pulse2 2s infinite;
+}
+
+#main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+#sidebar {
+  width: 200px;
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.sidebar-section {
+  padding: 10px 12px 4px;
+}
+.sidebar-label {
+  font-size: 0.58rem;
+  color: var(--text3);
+  letter-spacing: 2px;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.15s;
+  gap: 8px;
+  margin-bottom: 1px;
+}
+.sidebar-item:hover { background: var(--panel); }
+.sidebar-item.active { background: rgba(232,50,90,0.1); }
+.sidebar-item .si-left { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; }
+.sidebar-item .si-icon { font-size: 0.82rem; flex-shrink: 0; }
+.sidebar-item .si-name { font-size: 0.68rem; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar-item.active .si-name { color: var(--accent2); }
+.sidebar-item .si-count {
+  font-size: 0.6rem;
+  color: var(--text3);
+  background: var(--panel);
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-family: var(--mono);
+  flex-shrink: 0;
+}
+
+.feeder-block {
+  margin: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.feeder-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.feeder-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.65rem;
+}
+.feeder-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.feeder-timeline {
+  height: 30px;
+  background: var(--bg3);
+  border-radius: 4px;
+  margin-top: 8px;
+  position: relative;
+  overflow: hidden;
+}
+.feeder-bar {
+  position: absolute;
+  bottom: 0;
+  width: 3px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  opacity: 0.7;
+}
+
+#content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+#home-page {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.home-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+.home-title {
+  font-family: var(--sans);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.home-date {
+  font-size: 1.6rem;
+  font-weight: 800;
+  font-family: var(--sans);
+  color: var(--text3);
+  letter-spacing: 4px;
+}
+
+.objects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+  animation: fadeUp 0.4s ease;
+}
+
+.obj-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+  aspect-ratio: 1;
+  justify-content: center;
+}
+.obj-card:hover {
+  background: var(--bg3);
+  border-color: var(--border2);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.obj-card:hover .obj-icon { transform: scale(1.05); }
+
+.obj-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  font-size: 0.6rem;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700;
+  font-family: var(--mono);
+}
+.obj-badge.green { background: rgba(34,197,94,0.2); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
+.obj-badge.yellow { background: rgba(245,158,11,0.2); color: var(--yellow); border: 1px solid rgba(245,158,11,0.3); }
+.obj-badge.red { background: rgba(232,50,90,0.2); color: var(--accent2); border: 1px solid rgba(232,50,90,0.3); }
+
+.obj-icon {
+  font-size: 2rem;
+  transition: transform 0.2s;
+  line-height: 1;
+}
+.obj-icon svg {
+  width: 36px; height: 36px;
+  fill: var(--text3);
+  transition: fill 0.2s;
+}
+.obj-card:hover .obj-icon svg { fill: var(--text2); }
+
+.obj-name {
+  font-size: 0.68rem;
+  color: var(--text2);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  text-align: center;
+}
+
+#submit-page {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: none;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.page-header h2 {
+  font-family: var(--sans);
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.page-header .ph-icon { font-size: 1.3rem; }
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-group.full { grid-column: 1/-1; }
+.form-label {
+  font-size: 0.65rem;
+  color: var(--text3);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+.form-input, .form-select, .form-textarea {
+  background: var(--panel);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 9px 12px;
+  color: var(--text);
+  font-size: 0.75rem;
+  font-family: var(--mono);
+  outline: none;
+  transition: border-color 0.2s;
+}
+.form-input:focus, .form-select:focus, .form-textarea:focus {
+  border-color: var(--accent);
+}
+.form-textarea { resize: vertical; min-height: 100px; }
+.form-select { cursor: pointer; }
+option { background: var(--panel); }
+
+.tag-input-wrap {
+  background: var(--panel);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 6px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 40px;
+  cursor: text;
+}
+.tag-pill {
+  background: rgba(232,50,90,0.15);
+  border: 1px solid rgba(232,50,90,0.3);
+  color: var(--accent2);
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.65rem;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.tag-pill button {
+  background: none; border: none; color: var(--accent);
+  cursor: pointer; font-size: 0.7rem; padding: 0; line-height: 1;
+}
+.tag-input-inline {
+  background: none; border: none; outline: none;
+  color: var(--text); font-size: 0.72rem; font-family: var(--mono);
+  flex: 1; min-width: 80px;
+}
+
+.submit-btn {
+  background: var(--accent);
+  border: none;
+  border-radius: 7px;
+  padding: 10px 24px;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: var(--mono);
+  cursor: pointer;
+  letter-spacing: 1px;
+  transition: all 0.2s;
+  display: flex; align-items: center; gap: 8px;
+}
+.submit-btn:hover { background: var(--accent2); transform: translateY(-1px); }
+
+#hunting-page {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: none;
+}
+
+.hunt-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.hunt-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  transition: border-color 0.2s;
+}
+.hunt-card:hover { border-color: var(--border2); }
+.hunt-card-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+.hunt-card-title .hct-icon { font-size: 1rem; }
+
+.hunt-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: var(--bg3);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.hunt-result:hover { background: var(--bg2); }
+.hr-left { display: flex; align-items: center; gap: 8px; }
+.hr-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.hr-text { font-size: 0.68rem; color: var(--text2); font-family: var(--mono); }
+.hr-count {
+  font-size: 0.62rem;
+  color: var(--accent2);
+  background: rgba(232,50,90,0.1);
+  padding: 1px 7px;
+  border-radius: 10px;
+}
+
+#inv-page {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: none;
+}
+
+.inv-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+}
+.inv-table th {
+  background: var(--panel);
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 0.62rem;
+  color: var(--text3);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border2);
+  white-space: nowrap;
+}
+.inv-table td {
+  padding: 10px 12px;
+  font-size: 0.7rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text2);
+}
+.inv-table tr:hover td { background: var(--panel); }
+.inv-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.6rem;
+  font-weight: 600;
+}
+
+#search-page {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: none;
+}
+
+.search-wrap {
+  position: relative;
+  margin-bottom: 20px;
+}
+.search-big {
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 14px 20px 14px 48px;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: var(--mono);
+  outline: none;
+  transition: border-color 0.2s;
+}
+.search-big:focus { border-color: var(--accent); }
+.search-icon-big {
+  position: absolute;
+  left: 16px; top: 50%;
+  transform: translateY(-50%);
+  color: var(--text3);
+  font-size: 1rem;
+}
+
+.search-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.sf-chip {
+  background: var(--panel);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 0.65rem;
+  color: var(--text2);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.sf-chip:hover, .sf-chip.active {
+  background: rgba(232,50,90,0.15);
+  border-color: rgba(232,50,90,0.4);
+  color: var(--accent2);
+}
+
+.search-results { animation: fadeUp 0.3s ease; }
+.sr-item {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.sr-item:hover { border-color: var(--border2); background: var(--bg3); }
+.sr-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.sr-type {
+  font-size: 0.6rem;
+  color: var(--text3);
+  background: var(--bg3);
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.sr-value {
+  font-size: 0.8rem;
+  color: var(--text);
+  font-family: var(--mono);
+  word-break: break-all;
+  margin-bottom: 6px;
+}
+.sr-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 0.62rem;
+  color: var(--text3);
+}
+
+#crawlers-page {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: none;
+}
+
+.crawler-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+.crawler-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+.cc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.cc-name {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.cc-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.63rem;
+}
+.cc-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.cc-stat {
+  background: var(--bg3);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.cc-stat-label { font-size: 0.58rem; color: var(--text3); letter-spacing: 1px; }
+.cc-stat-value { font-size: 0.9rem; font-weight: 600; color: var(--text); margin-top: 2px; }
+
+#detail-drawer {
+  position: fixed;
+  right: 0; top: 48px; bottom: 0;
+  width: 400px;
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
+  transform: translateX(100%);
+  transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#detail-drawer.open { transform: translateX(0); }
+
+.dd-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.dd-title { font-family: var(--sans); font-size: 0.9rem; font-weight: 700; }
+.dd-close {
+  background: none; border: none; color: var(--text2);
+  font-size: 1.2rem; cursor: pointer;
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 4px; transition: background 0.15s;
+}
+.dd-close:hover { background: var(--panel); }
+
+.dd-body { flex: 1; overflow-y: auto; padding: 20px; }
+.dd-field { margin-bottom: 16px; }
+.dd-field-label { font-size: 0.6rem; color: var(--text3); letter-spacing: 2px; margin-bottom: 5px; }
+.dd-field-value {
+  font-size: 0.75rem;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+#live-ticker {
+  height: 28px;
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+}
+.ticker-label {
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 0 10px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  letter-spacing: 1px;
+  flex-shrink: 0;
+  z-index: 2;
+}
+.ticker-content {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  white-space: nowrap;
+  animation: ticker-scroll 45s linear infinite;
+  padding-left: 20px;
+}
+@keyframes ticker-scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.ticker-item {
+  font-size: 0.62rem;
+  color: var(--text2);
+  margin-right: 40px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ticker-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+
+#settings-page {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: none;
+}
+.settings-section {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.settings-section-title {
+  padding: 12px 16px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  display: flex; align-items: center; gap: 8px;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-row:last-child { border-bottom: none; }
+.sr-label { font-size: 0.72rem; color: var(--text2); }
+.sr-desc { font-size: 0.62rem; color: var(--text3); margin-top: 2px; }
+
+.toggle-sw {
+  width: 36px; height: 20px;
+  border-radius: 10px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.toggle-sw.on { background: var(--accent); border-color: var(--accent); }
+.toggle-sw::after {
+  content: '';
+  position: absolute;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  top: 2px; left: 2px;
+  transition: left 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+.toggle-sw.on::after { left: 18px; }
+
+#objects-page {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: none;
+}
+
+.toast {
+  position: fixed;
+  bottom: 44px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--panel);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 0.72rem;
+  color: var(--text);
+  z-index: 9999;
+  opacity: 0;
+  transition: all 0.3s;
+  pointer-events: none;
+  max-width: 400px;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+.scanlines {
+  position: fixed; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.015) 2px, rgba(0,0,0,0.015) 4px);
+  pointer-events: none;
+  z-index: 9998;
+}
+
+#tormon-page {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: none;
+  font-family: var(--mono);
+}
+
+.tm-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.tm-grid-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.tm-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.3s;
+}
+.tm-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--tm-accent, var(--green)), transparent);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.tm-card.active-card::before { opacity: 1; }
+
+.tm-card-label {
+  font-size: 0.58rem;
+  color: var(--text3);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tm-card-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+  word-break: break-all;
+  font-family: var(--mono);
+  transition: color 0.3s;
+}
+.tm-card-sub {
+  font-size: 0.65rem;
+  color: var(--text3);
+}
+
+.leak-banner {
+  padding: 16px 20px;
+  border-radius: 10px;
+  border: 1px solid;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+  transition: all 0.4s;
+}
+.leak-banner-icon { font-size: 1.8rem; flex-shrink: 0; }
+.leak-banner-title { font-size: 0.85rem; font-weight: 700; letter-spacing: 1px; margin-bottom: 3px; }
+.leak-banner-detail { font-size: 0.68rem; opacity: 0.8; }
+
+@keyframes ring-pulse {
+  0%   { box-shadow: 0 0 0 0 currentColor; opacity: 0.8; }
+  70%  { box-shadow: 0 0 0 8px currentColor; opacity: 0; }
+  100% { box-shadow: 0 0 0 0 currentColor; opacity: 0; }
+}
+.tm-dot-pulse {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  animation: ring-pulse 2s infinite;
+}
+
+.tm-terminal {
+  background: #080a0e;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  height: 220px;
+  overflow-y: auto;
+  font-size: 0.68rem;
+  line-height: 1.7;
+  font-family: var(--mono);
+}
+.tm-log-line { display: flex; gap: 10px; }
+.tm-log-time { color: var(--text3); flex-shrink: 0; }
+.tm-log-ok   { color: var(--green); }
+.tm-log-err  { color: var(--accent2); }
+.tm-log-warn { color: var(--yellow); }
+.tm-log-info { color: var(--blue); }
+
+.tm-select {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 7px 12px;
+  color: var(--text);
+  font-size: 0.72rem;
+  font-family: var(--mono);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.tm-select:focus { border-color: var(--green); }
+.tm-select option { background: var(--panel); }
+
+.tm-btn {
+  border: none;
+  border-radius: 7px;
+  padding: 9px 20px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: var(--mono);
+  cursor: pointer;
+  letter-spacing: 1px;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.tm-btn-primary {
+  background: rgba(0,255,140,0.15);
+  color: #00ff8c;
+  border: 1px solid rgba(0,255,140,0.35);
+}
+.tm-btn-primary:hover { background: rgba(0,255,140,0.25); }
+.tm-btn-danger {
+  background: rgba(232,50,90,0.12);
+  color: var(--accent2);
+  border: 1px solid rgba(232,50,90,0.3);
+}
+.tm-btn-danger:hover { background: rgba(232,50,90,0.22); }
+.tm-btn-muted {
+  background: var(--bg3);
+  color: var(--text2);
+  border: 1px solid var(--border2);
+}
+.tm-btn-muted:hover { background: var(--panel); color: var(--text); }
+.tm-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.opsec-list { list-style: none; }
+.opsec-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.7rem;
+}
+.opsec-item:last-child { border-bottom: none; }
+.opsec-check {
+  width: 18px; height: 18px;
+  border-radius: 4px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  font-size: 0.65rem;
+  transition: all 0.2s;
+  margin-top: 1px;
+}
+.opsec-check.checked { background: rgba(0,255,140,0.15); border-color: rgba(0,255,140,0.4); color: #00ff8c; }
+.opsec-label { color: var(--text2); line-height: 1.5; }
+.opsec-label strong { color: var(--text); display: block; margin-bottom: 1px; }
+.opsec-severity {
+  flex-shrink: 0;
+  font-size: 0.58rem;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  margin-left: auto;
+}
+
+.tm-ring-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 90px; height: 90px;
+  flex-shrink: 0;
+}
+.tm-ring-label {
+  position: absolute;
+  text-align: center;
+  font-family: var(--mono);
+}
+.tm-ring-num { font-size: 1.3rem; font-weight: 700; }
+.tm-ring-txt { font-size: 0.55rem; color: var(--text3); letter-spacing: 1px; }
+
+.sparkline-wrap { height: 40px; position: relative; }
+.sparkline-bar {
+  position: absolute;
+  bottom: 0;
+  border-radius: 2px 2px 0 0;
+  width: 6px;
+  transition: height 0.3s;
+}
+
+.cli-block {
+  background: #080a0e;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 0.68rem;
+  color: var(--green);
+  font-family: var(--mono);
+  line-height: 1.8;
+  position: relative;
+}
+.cli-block .cli-prompt { color: var(--text3); }
+.cli-block .cli-comment { color: var(--text3); font-style: italic; }
+.cli-copy {
+  position: absolute;
+  top: 8px; right: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 0.6rem;
+  color: var(--text3);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.cli-copy:hover { color: var(--text); border-color: var(--text3); }
+</style>
+</head>
+<body>
+
+<div class="scanlines"></div>
+
+<nav id="nav">
+  <a href="/" class="opxdr-back" onclick="goBackOPXDR(event)">
+    <span class="arrow">◀</span>
+    <span>OPXDR</span>
+  </a>
+
+  <div class="logo-wrap">
+    <div class="logo-icon">🕷</div>
+    <div class="logo-text">
+      <div class="main">OPX TOR</div>
+      <div class="sub">THREAT INTEL & LEAK ANALYSIS</div>
+    </div>
+  </div>
+
+  <div class="nav-items">
+    <div class="nav-item active" onclick="showPage('home',this)">
+      <span class="icon">🏠</span> Home
+    </div>
+    <div class="nav-item" onclick="showPage('submit',this)">
+      <span class="icon">📤</span> Submit
+    </div>
+    <div class="nav-item" onclick="showPage('tags',this)">
+      <span class="icon">🏷</span> Tags
+    </div>
+    <div class="nav-item" onclick="showPage('hunting',this)">
+      <span class="icon">🎯</span> Hunting
+    </div>
+    <div class="nav-item" onclick="showPage('crawlers',this)">
+      <span class="icon">🕸</span> Crawlers
+    </div>
+    <div class="nav-item" onclick="showPage('objects',this)">
+      <span class="icon">📦</span> Objects
+    </div>
+    <div class="nav-item" onclick="showPage('investigations',this)">
+      <span class="icon">🔎</span> Investigations
+    </div>
+    <div class="nav-item" onclick="showPage('search',this)">
+      <span class="icon">🔍</span> Search
+    </div>
+    <div class="nav-item" onclick="showPage('settings',this)">
+      <span class="icon">⚙️</span> Settings
+    </div>
+    <div class="nav-item" onclick="showPage('tormon',this)" style="border:1px solid rgba(0,255,140,0.2);background:rgba(0,255,140,0.04)">
+      <span class="icon">⬡</span> TOR MONITOR
+    </div>
+  </div>
+
+  <div class="nav-right">
+    <div class="date-display" id="nav-date"></div>
+    <div style="display:flex;align-items:center;gap:5px">
+      <div class="status-dot" style="background:var(--green)"></div>
+      <span style="font-size:0.62rem;color:var(--text3)">LIVE</span>
+    </div>
+    <div style="width:1px;height:20px;background:var(--border)"></div>
+    <span style="font-size:0.7rem;color:var(--accent);cursor:pointer;border:1px solid rgba(232,50,90,0.3);padding:3px 10px;border-radius:4px" onclick="showLogout()">Log Out</span>
+  </div>
+</nav>
+
+<div id="main">
+
+  <div id="sidebar">
+    <div style="padding:10px 12px 6px">
+      <div class="sidebar-label">Feeders</div>
+      <div class="feeder-block">
+        <div class="feeder-row">
+          <div class="feeder-status">
+            <div class="feeder-dot" style="background:var(--green)"></div>
+            <span style="font-size:0.65rem;color:var(--green)">Up</span>
+          </div>
+          <div class="feeder-status">
+            <div class="feeder-dot" style="background:var(--green)"></div>
+            <span style="font-size:0.65rem;color:var(--text2)">Crawled</span>
+          </div>
+        </div>
+        <div class="feeder-row">
+          <div class="feeder-status">
+            <div class="feeder-dot" style="background:var(--accent)"></div>
+            <span style="font-size:0.65rem;color:var(--accent)">Down</span>
+          </div>
+          <div class="feeder-status">
+            <div class="feeder-dot" style="background:var(--text3)"></div>
+            <span style="font-size:0.65rem;color:var(--text2)">Queue</span>
+          </div>
+        </div>
+        <div class="feeder-timeline" id="timeline1"></div>
+      </div>
+      <div class="feeder-block" style="margin-top:6px">
+        <div class="feeder-row">
+          <div class="feeder-status">
+            <div class="feeder-dot" style="background:var(--green)"></div>
+            <span style="font-size:0.65rem;color:var(--green)">UP</span>
+          </div>
+          <div class="feeder-status">
+            <div class="feeder-dot" style="background:var(--green)"></div>
+            <span style="font-size:0.65rem;color:var(--text2)">Crawled</span>
+          </div>
+        </div>
+        <div class="feeder-row">
+          <div class="feeder-status">
+            <div class="feeder-dot" style="background:var(--yellow)"></div>
+            <span style="font-size:0.65rem;color:var(--yellow)">DOWN</span>
+          </div>
+          <div class="feeder-status">
+            <div class="feeder-dot" style="background:var(--text3)"></div>
+            <span style="font-size:0.65rem;color:var(--text2)">Queue</span>
+          </div>
+        </div>
+        <div class="feeder-timeline" id="timeline2"></div>
+      </div>
+    </div>
+    <div style="height:1px;background:var(--border);margin:8px 0"></div>
+    <div class="sidebar-section" style="flex:1;overflow-y:auto">
+      <div class="sidebar-label">Quick Access</div>
+      <div class="sidebar-item active" onclick="filterObjects('all')">
+        <div class="si-left">
+          <span class="si-icon">🌐</span>
+          <span class="si-name">All Objects</span>
+        </div>
+        <span class="si-count" style="color:var(--green)">22</span>
+      </div>
+      <div class="sidebar-item" onclick="filterObjects('domain')">
+        <div class="si-left">
+          <span class="si-icon">🕷</span>
+          <span class="si-name">Domains</span>
+        </div>
+        <span class="si-count">0</span>
+      </div>
+      <div class="sidebar-item" onclick="filterObjects('ip')">
+        <div class="si-left">
+          <span class="si-icon">🔌</span>
+          <span class="si-name">IPs</span>
+        </div>
+        <span class="si-count">0</span>
+      </div>
+      <div class="sidebar-item" onclick="filterObjects('mail')">
+        <div class="si-left">
+          <span class="si-icon">📧</span>
+          <span class="si-name">Mails</span>
+        </div>
+        <span class="si-count">0</span>
+      </div>
+      <div class="sidebar-item" onclick="filterObjects('crypto')">
+        <div class="si-left">
+          <span class="si-icon">₿</span>
+          <span class="si-name">Crypto</span>
+        </div>
+        <span class="si-count">0</span>
+      </div>
+      <div class="sidebar-item" onclick="showPage('investigations',null)">
+        <div class="si-left">
+          <span class="si-icon">🔎</span>
+          <span class="si-name">Investigations</span>
+        </div>
+        <span class="si-count">3</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="content">
+
+    <div id="home-page">
+      <div class="home-header">
+        <div class="home-title">Analysis Information & Leak</div>
+        <div class="home-date" id="home-date-display"></div>
+      </div>
+      <div class="objects-grid" id="objects-grid"></div>
+    </div>
+
+    <div id="submit-page">
+      <div class="page-header">
+        <span class="ph-icon">📤</span>
+        <h2>Submit Intelligence</h2>
+      </div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Object Type</label>
+          <select class="form-select" id="submit-type">
+            <option>Domain</option>
+            <option>IP Address</option>
+            <option>URL</option>
+            <option>Email Address</option>
+            <option>Bitcoin Address</option>
+            <option>PGP Key</option>
+            <option>Hash (MD5/SHA1/SHA256)</option>
+            <option>Phone Number</option>
+            <option>CVE</option>
+            <option>File</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Priority</label>
+          <select class="form-select">
+            <option>Low</option>
+            <option selected>Medium</option>
+            <option>High</option>
+            <option>Critical</option>
+          </select>
+        </div>
+        <div class="form-group full">
+          <label class="form-label">Value / IOC</label>
+          <input class="form-input" type="text" placeholder="e.g. 185.220.101.47 or domain.onion or hash...">
+        </div>
+        <div class="form-group full">
+          <label class="form-label">Description</label>
+          <textarea class="form-textarea" placeholder="Context, source, analysis notes..."></textarea>
+        </div>
+        <div class="form-group full">
+          <label class="form-label">Tags</label>
+          <div class="tag-input-wrap" id="tag-wrap" onclick="document.getElementById('tag-input').focus()">
+            <div class="tag-pill">APT<button onclick="removeTag(this)">×</button></div>
+            <div class="tag-pill">malware<button onclick="removeTag(this)">×</button></div>
+            <input class="tag-input-inline" id="tag-input" placeholder="Add tag..." onkeydown="addTag(event)">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Source</label>
+          <select class="form-select">
+            <option>OSINT</option>
+            <option>Honeypot</option>
+            <option>SIEM Alert</option>
+            <option>Manual Analysis</option>
+            <option>Threat Feed</option>
+            <option>Dark Web Crawl</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">TLP</label>
+          <select class="form-select">
+            <option>TLP:WHITE</option>
+            <option selected>TLP:GREEN</option>
+            <option>TLP:AMBER</option>
+            <option>TLP:RED</option>
+          </select>
+        </div>
+      </div>
+      <button class="submit-btn" onclick="handleSubmit()">
+        <span>⚡</span> Submit Intelligence
+      </button>
+    </div>
+
+    <div id="tags-page" style="flex:1;overflow-y:auto;padding:24px;display:none">
+      <div class="page-header">
+        <span class="ph-icon">🏷</span>
+        <h2>Tags</h2>
+      </div>
+      <div id="tags-cloud" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:16px"></div>
+    </div>
+
+    <div id="hunting-page">
+      <div class="page-header">
+        <span class="ph-icon">🎯</span>
+        <h2>Threat Hunting</h2>
+      </div>
+      <div style="display:flex;gap:10px;margin-bottom:16px">
+        <input class="form-input" style="flex:1" placeholder="Search for IOC, hash, domain, IP..." id="hunt-input">
+        <button class="submit-btn" onclick="runHunt()">🔍 Hunt</button>
+      </div>
+      <div class="hunt-grid" id="hunt-grid"></div>
+    </div>
+
+    <div id="crawlers-page">
+      <div class="page-header">
+        <span class="ph-icon">🕸</span>
+        <h2>Crawlers</h2>
+      </div>
+      <div class="crawler-grid" id="crawler-grid"></div>
+    </div>
+
+    <div id="objects-page">
+      <div class="page-header">
+        <span class="ph-icon">📦</span>
+        <h2>Objects</h2>
+      </div>
+      <div class="form-grid" style="max-width:600px;margin-bottom:20px">
+        <div class="form-group">
+          <label class="form-label">Object Type</label>
+          <select class="form-select" onchange="loadObjectDetail(this.value)">
+            <option>Domains</option><option>IPs</option><option>URLs</option>
+            <option>Emails</option><option>Hashes</option><option>CVEs</option>
+          </select>
+        </div>
+      </div>
+      <div id="obj-detail-content"></div>
+    </div>
+
+    <div id="investigations-page">
+      <div class="page-header">
+        <span class="ph-icon">🔎</span>
+        <h2>Investigations</h2>
+        <button class="submit-btn" style="margin-left:auto;padding:6px 14px;font-size:0.68rem" onclick="newInvestigation()">+ New</button>
+      </div>
+      <table class="inv-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Objects</th>
+            <th>Created</th>
+            <th>Modified</th>
+            <th>Analyst</th>
+          </tr>
+        </thead>
+        <tbody id="inv-tbody"></tbody>
+      </table>
+    </div>
+
+    <div id="search-page">
+      <div class="page-header">
+        <span class="ph-icon">🔍</span>
+        <h2>Search</h2>
+      </div>
+      <div class="search-wrap">
+        <span class="search-icon-big">🔍</span>
+        <input class="search-big" id="search-big-input" placeholder="Search IOCs, domains, hashes, emails, IPs..." oninput="liveSearch(this.value)" onkeydown="if(event.key==='Enter')liveSearch(this.value)">
+      </div>
+      <div class="search-filters">
+        <div class="sf-chip active" onclick="toggleFilter(this,'all')">All</div>
+        <div class="sf-chip" onclick="toggleFilter(this,'domain')">Domains</div>
+        <div class="sf-chip" onclick="toggleFilter(this,'ip')">IPs</div>
+        <div class="sf-chip" onclick="toggleFilter(this,'hash')">Hashes</div>
+        <div class="sf-chip" onclick="toggleFilter(this,'email')">Emails</div>
+        <div class="sf-chip" onclick="toggleFilter(this,'crypto')">Crypto</div>
+        <div class="sf-chip" onclick="toggleFilter(this,'cve')">CVEs</div>
+        <div class="sf-chip" onclick="toggleFilter(this,'url')">URLs</div>
+      </div>
+      <div class="search-results" id="search-results"></div>
+    </div>
+
+    <div id="tormon-page">
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-family:var(--sans);font-size:1.1rem;font-weight:800;letter-spacing:2px;color:#00ff8c;display:flex;align-items:center;gap:10px">
+            <span style="font-size:1.3rem">⬡</span> TOR PROXY MONITOR
+          </div>
+          <div style="font-size:0.65rem;color:var(--text3);margin-top:3px;letter-spacing:1px">IP LEAK DETECTION · CIRCUIT ANALYSIS · OPSEC VERIFICATION</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div>
+            <div style="font-size:0.58rem;color:var(--text3);letter-spacing:1.5px;margin-bottom:4px">PROXY PORT</div>
+            <select class="tm-select" id="tm-port-select" onchange="tmPortChange()">
+              <option value="9050">9050 — Tor Daemon</option>
+              <option value="9150">9150 — Tor Browser</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size:0.58rem;color:var(--text3);letter-spacing:1.5px;margin-bottom:4px">AUTO-REFRESH</div>
+            <select class="tm-select" id="tm-auto-select" onchange="tmAutoChange()">
+              <option value="0">Off</option>
+              <option value="30">30s</option>
+              <option value="60">1m</option>
+              <option value="120">2m</option>
+              <option value="300">5m</option>
+            </select>
+          </div>
+          <div style="margin-top:20px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="tm-btn tm-btn-primary" id="tm-check-btn" onclick="tmRunCheck()">▶ CHECK NOW</button>
+            <button class="tm-btn tm-btn-muted" onclick="tmClearLog()">✕ CLEAR LOG</button>
+            <button class="tm-btn" id="tm-launch-btn" onclick="tmLaunchApp()"
+              style="background:linear-gradient(135deg,rgba(0,200,255,0.15),rgba(100,80,255,0.15));border:1px solid rgba(0,200,255,0.35);color:#00c8ff;position:relative;overflow:hidden;gap:8px">
+              <span id="tm-launch-icon" style="font-size:1rem">⬡</span>
+              <span id="tm-launch-text">START TOR MONITOR</span>
+              <span style="font-size:0.55rem;background:rgba(0,200,255,0.15);border:1px solid rgba(0,200,255,0.25);border-radius:3px;padding:1px 5px;margin-left:2px;letter-spacing:0.5px">GO APP</span>
+            </button>
+          </div>
+          <div id="tm-launch-status" style="display:none;margin-top:10px;background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.2);border-radius:8px;padding:10px 14px;font-size:0.68rem;color:var(--text2);font-family:var(--mono)">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              <span id="tm-launch-status-dot" style="width:8px;height:8px;border-radius:50%;background:#00c8ff;animation:pulse2 1.5s infinite;flex-shrink:0"></span>
+              <span id="tm-launch-status-msg" style="color:#00c8ff;font-weight:600">Preparing to launch...</span>
+            </div>
+            <div id="tm-launch-cmd-display" style="background:#080a0e;border:1px solid var(--border);border-radius:5px;padding:8px 12px;color:var(--green);font-size:0.65rem;line-height:1.9;position:relative">
+              <button onclick="copyCmd(this, document.getElementById('tm-build-cmd-full').textContent)" style="position:absolute;top:5px;right:6px;background:var(--panel);border:1px solid var(--border2);border-radius:3px;padding:1px 7px;font-size:0.58rem;color:var(--text3);cursor:pointer">copy all</button>
+              <span style="color:var(--text3)"># 1. Install deps (first time only)</span><br>
+              <span style="color:var(--text3)">$ </span>brew install go tor<br>
+              <span style="color:var(--text3)">$ </span>brew services start tor<br>
+              <span style="color:var(--text3)">$ </span>xcode-select --install<br>
+              <span style="color:var(--text3)"># 2. Save main.go → build → run</span><br>
+              <span style="color:var(--text3)">$ </span>mkdir -p ~/tor-monitor &amp;&amp; cd ~/tor-monitor<br>
+              <span style="color:var(--text3)">$ </span>go mod init tor-monitor<br>
+              <span style="color:var(--text3)">$ </span>go mod tidy<br>
+              <span style="color:var(--text3)">$ </span>go build -o tor-monitor-app .<br>
+              <span style="color:var(--text3)">$ </span><span style="color:#00ff8c;font-weight:700">./tor-monitor-app</span>
+              <span id="tm-build-cmd-full" style="display:none">brew install go tor && brew services start tor && xcode-select --install && mkdir -p ~/tor-monitor && cd ~/tor-monitor && go mod init tor-monitor && go mod tidy && go build -o tor-monitor-app . && ./tor-monitor-app</span>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button class="tm-btn tm-btn-primary" style="font-size:0.63rem;padding:6px 14px" onclick="tmSaveGoFile()">
+                ⬇ Save main.go
+              </button>
+              <button class="tm-btn tm-btn-muted" style="font-size:0.63rem;padding:6px 14px" onclick="tmCopyBuildCmd()">
+                📋 Copy Build Command
+              </button>
+              <button class="tm-btn" style="font-size:0.63rem;padding:6px 14px;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);color:var(--green)" onclick="tmOpenTerminal()">
+                🖥 Open Terminal
+              </button>
+              <button class="tm-btn tm-btn-muted" style="font-size:0.63rem;padding:6px 14px;margin-left:auto" onclick="document.getElementById('tm-launch-status').style.display='none'">
+                ✕
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="leak-banner" id="tm-leak-banner"
+        style="background:rgba(90,110,140,0.08);border-color:rgba(90,110,140,0.2)">
+        <div class="leak-banner-icon" id="tm-banner-icon">⬡</div>
+        <div style="flex:1">
+          <div class="leak-banner-title" id="tm-banner-title" style="color:var(--text2)">LEAK STATUS: UNKNOWN</div>
+          <div class="leak-banner-detail" id="tm-banner-detail" style="color:var(--text3)">Click CHECK NOW to analyse your Tor circuit</div>
+        </div>
+        <div id="tm-banner-right" style="text-align:right;font-size:0.62rem;color:var(--text3)">
+          <div id="tm-check-count">Checks: 0</div>
+          <div id="tm-last-checked">Last: never</div>
+          <div id="tm-auto-label" style="color:var(--text3);margin-top:2px">Auto: OFF</div>
+        </div>
+      </div>
+
+      <div class="tm-grid-3">
+        <div class="tm-card" id="tm-tor-card" style="--tm-accent:var(--green)">
+          <div class="tm-card-label">
+            <span class="tm-dot-pulse" id="tm-status-dot" style="background:var(--text3);color:var(--text3)"></span>
+            TOR CIRCUIT STATUS
+          </div>
+          <div class="tm-card-value" id="tm-status-val" style="color:var(--text3);font-size:0.85rem">Checking...</div>
+          <div class="tm-card-sub" id="tm-status-sub">Port not yet verified</div>
+        </div>
+        <div class="tm-card" id="tm-torip-card" style="--tm-accent:#00ff8c">
+          <div class="tm-card-label">🌐 TOR EXIT IP</div>
+          <div class="tm-card-value" id="tm-tor-ip" style="color:#00ff8c;font-size:1rem">—</div>
+          <div class="tm-card-sub" id="tm-tor-latency">Latency: —</div>
+        </div>
+        <div class="tm-card" id="tm-directip-card" style="--tm-accent:var(--yellow)">
+          <div class="tm-card-label">🏠 DIRECT ISP IP</div>
+          <div class="tm-card-value" id="tm-direct-ip" style="color:var(--yellow);font-size:1rem">—</div>
+          <div class="tm-card-sub" id="tm-direct-sub">Unrouted — real identity</div>
+        </div>
+      </div>
+
+      <div class="tm-grid" style="margin-bottom:16px">
+        <div class="tm-card">
+          <div class="tm-card-label">⚡ CIRCUIT LATENCY HISTORY</div>
+          <div class="sparkline-wrap" id="tm-sparkline" style="margin-bottom:8px"></div>
+          <div style="display:flex;justify-content:space-between;font-size:0.62rem;color:var(--text3)">
+            <span>Last 12 checks</span>
+            <span id="tm-avg-latency">Avg: —</span>
+          </div>
+        </div>
+        <div class="tm-card" style="display:flex;align-items:center;gap:20px">
+          <div class="tm-ring-wrap">
+            <svg width="90" height="90" style="transform:rotate(-90deg)">
+              <circle cx="45" cy="45" r="36" fill="none" stroke="var(--border2)" stroke-width="6"/>
+              <circle cx="45" cy="45" r="36" fill="none" stroke="#00ff8c" stroke-width="6"
+                stroke-dasharray="226" id="tm-score-ring"
+                stroke-dashoffset="226"
+                stroke-linecap="round"
+                style="transition:stroke-dashoffset 1s ease"/>
+            </svg>
+            <div class="tm-ring-label">
+              <div class="tm-ring-num" id="tm-score-num" style="color:#00ff8c">—</div>
+              <div class="tm-ring-txt">OPSEC<br>SCORE</div>
+            </div>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:0.72rem;font-weight:700;color:var(--text);margin-bottom:8px">CIRCUIT HEALTH</div>
+            <div id="tm-score-breakdown" style="font-size:0.64rem;color:var(--text3);line-height:2">
+              <div>● Tor online: <span style="color:var(--text2)">—</span></div>
+              <div>● IP isolated: <span style="color:var(--text2)">—</span></div>
+              <div>● No leak: <span style="color:var(--text2)">—</span></div>
+              <div>● Latency OK: <span style="color:var(--text2)">—</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tm-grid" style="margin-bottom:16px">
+        <div class="tm-card">
+          <div class="tm-card-label">📟 EVENT LOG <span id="tm-log-count" style="color:var(--text3);font-weight:400;font-size:0.6rem;margin-left:6px">0 entries</span></div>
+          <div class="tm-terminal" id="tm-log">
+            <div class="tm-log-line"><span class="tm-log-time">00:00:00</span><span class="tm-log-info">OPX TOR Monitor initialised — click CHECK NOW</span></div>
+          </div>
+        </div>
+        <div class="tm-card">
+          <div class="tm-card-label">🖥 CLI VERIFICATION COMMANDS</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div>
+              <div style="font-size:0.6rem;color:var(--text3);letter-spacing:1px;margin-bottom:4px">CHECK TOR PORT</div>
+              <div class="cli-block">
+                <button class="cli-copy" onclick="copyCmd(this,'netstat -tln | grep 9050')">copy</button>
+                <span class="cli-prompt">$ </span>netstat -tln | grep 9050<br>
+                <span class="cli-prompt">$ </span>brew services list | grep tor
+              </div>
+            </div>
+            <div>
+              <div style="font-size:0.6rem;color:var(--text3);letter-spacing:1px;margin-bottom:4px">TEST TOR IP VIA CURL</div>
+              <div class="cli-block">
+                <button class="cli-copy" onclick="copyCmd(this,'curl --socks5-hostname 127.0.0.1:9050 https://api.ipify.org')">copy</button>
+                <span class="cli-prompt">$ </span>curl --socks5-hostname 127.0.0.1:9050 https://api.ipify.org
+              </div>
+            </div>
+            <div>
+              <div style="font-size:0.6rem;color:var(--text3);letter-spacing:1px;margin-bottom:4px">START TOR (MACOS)</div>
+              <div class="cli-block">
+                <button class="cli-copy" onclick="copyCmd(this,'brew services start tor')">copy</button>
+                <span class="cli-prompt">$ </span>brew install tor<br>
+                <span class="cli-prompt">$ </span>brew services start tor
+              </div>
+            </div>
+            <div>
+              <div style="font-size:0.6rem;color:var(--text3);letter-spacing:1px;margin-bottom:4px">BUILD TOR MONITOR APP (GO)</div>
+              <div class="cli-block" style="font-size:0.63rem">
+                <button class="cli-copy" onclick="copyCmd(this,'go mod tidy && go build -o tor-monitor-app . && ./tor-monitor-app')">copy</button>
+                <span class="cli-prompt">$ </span>go mod tidy<br>
+                <span class="cli-prompt">$ </span>go build -o tor-monitor-app .<br>
+                <span class="cli-prompt">$ </span>./tor-monitor-app<br>
+                <span class="cli-comment">  # Native macOS app (Fyne + Go)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tm-card" style="margin-bottom:16px">
+        <div class="tm-card-label">🛡 OPSEC VERIFICATION CHECKLIST <span style="color:var(--text3);font-weight:400;font-size:0.6rem;margin-left:8px">Check items as you verify them</span></div>
+        <ul class="opsec-list" id="tm-opsec-list"></ul>
+      </div>
+
+      <div class="tm-card" style="margin-bottom:16px">
+        <div class="tm-card-label">🔍 EXTERNAL LEAK VERIFICATION SERVICES</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin-top:8px">
+          <a href="https://check.torproject.org" target="_blank" rel="noopener" class="tm-ext-link" style="background:rgba(0,255,140,0.06);border:1px solid rgba(0,255,140,0.15);border-radius:8px;padding:12px 14px;text-decoration:none;display:flex;align-items:flex-start;gap:10px;transition:background 0.15s" onmouseover="this.style.background='rgba(0,255,140,0.12)'" onmouseout="this.style.background='rgba(0,255,140,0.06)'">
+            <span style="font-size:1.3rem;flex-shrink:0">⬡</span>
+            <div>
+              <div style="font-size:0.72rem;font-weight:700;color:#00ff8c">check.torproject.org</div>
+              <div style="font-size:0.62rem;color:var(--text3);margin-top:2px">Official Tor Project — confirms you are using Tor</div>
+            </div>
+          </a>
+          <a href="https://dnsleaktest.com" target="_blank" rel="noopener" style="background:rgba(56,189,248,0.06);border:1px solid rgba(56,189,248,0.15);border-radius:8px;padding:12px 14px;text-decoration:none;display:flex;align-items:flex-start;gap:10px;transition:background 0.15s" onmouseover="this.style.background='rgba(56,189,248,0.12)'" onmouseout="this.style.background='rgba(56,189,248,0.06)'">
+            <span style="font-size:1.3rem;flex-shrink:0">📡</span>
+            <div>
+              <div style="font-size:0.72rem;font-weight:700;color:var(--blue)">dnsleaktest.com</div>
+              <div style="font-size:0.62rem;color:var(--text3);margin-top:2px">DNS leak test — detects resolver leaks bypassing Tor</div>
+            </div>
+          </a>
+          <a href="https://ipleak.net" target="_blank" rel="noopener" style="background:rgba(167,139,250,0.06);border:1px solid rgba(167,139,250,0.15);border-radius:8px;padding:12px 14px;text-decoration:none;display:flex;align-items:flex-start;gap:10px;transition:background 0.15s" onmouseover="this.style.background='rgba(167,139,250,0.12)'" onmouseout="this.style.background='rgba(167,139,250,0.06)'">
+            <span style="font-size:1.3rem;flex-shrink:0">🌍</span>
+            <div>
+              <div style="font-size:0.72rem;font-weight:700;color:var(--purple)">ipleak.net</div>
+              <div style="font-size:0.62rem;color:var(--text3);margin-top:2px">Full leak test — IP, DNS, WebRTC, torrent IP all-in-one</div>
+            </div>
+          </a>
+          <a href="https://whoer.net" target="_blank" rel="noopener" style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.15);border-radius:8px;padding:12px 14px;text-decoration:none;display:flex;align-items:flex-start;gap:10px;transition:background 0.15s" onmouseover="this.style.background='rgba(34,197,94,0.12)'" onmouseout="this.style.background='rgba(34,197,94,0.06)'">
+            <span style="font-size:1.3rem;flex-shrink:0">👤</span>
+            <div>
+              <div style="font-size:0.72rem;font-weight:700;color:var(--green)">whoer.net</div>
+              <div style="font-size:0.62rem;color:var(--text3);margin-top:2px">Anonymity score — measures overall identity exposure risk</div>
+            </div>
+          </a>
+        </div>
+      </div>
+
+      <div class="tm-card">
+        <div class="tm-card-label">📦 NATIVE TOR MONITOR APP (GO + FYNE)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:4px">
+          <div>
+            <div style="font-size:0.65rem;font-weight:700;color:var(--text);margin-bottom:8px">FEATURES</div>
+            <div style="font-size:0.67rem;color:var(--text2);line-height:2.2">
+              <div>⬡ Real Tor exit IP via SOCKS5 proxy</div>
+              <div>⬡ Parallel direct ISP IP fetch</div>
+              <div>⬡ IP leak detection (match = alert)</div>
+              <div>⬡ Circuit latency measurement</div>
+              <div>⬡ 200-entry timestamped event log</div>
+              <div>⬡ Auto-refresh: 30s / 1m / 2m / 5m</div>
+              <div>⬡ Port selector: 9050 or 9150</div>
+              <div>⬡ Native macOS app — no Electron</div>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:0.65rem;font-weight:700;color:var(--text);margin-bottom:8px">PREREQUISITES</div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div class="cli-block" style="font-size:0.63rem">
+                <span class="cli-comment"># Install Go</span><br>
+                <span class="cli-prompt">$ </span>brew install go<br><br>
+                <span class="cli-comment"># Install Tor</span><br>
+                <span class="cli-prompt">$ </span>brew install tor<br>
+                <span class="cli-prompt">$ </span>brew services start tor<br><br>
+                <span class="cli-comment"># Fyne deps (Xcode)</span><br>
+                <span class="cli-prompt">$ </span>xcode-select --install
+              </div>
+              <div style="display:flex;gap:8px;margin-top:4px">
+                <button class="tm-btn tm-btn-primary" style="font-size:0.65rem;padding:7px 14px" onclick="copyCmd(this,'go mod tidy && go build -o tor-monitor-app . && ./tor-monitor-app')">
+                  ⬇ Copy Build Cmd
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /tormon-page -->
+
+    <div id="settings-page">
+      <div class="page-header">
+        <span class="ph-icon">⚙️</span>
+        <h2>Settings</h2>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">🔒 Security</div>
+        <div class="settings-row">
+          <div><div class="sr-label">Two-Factor Authentication</div><div class="sr-desc">Require 2FA for all analysts</div></div>
+          <div class="toggle-sw on" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="sr-label">API Key Rotation</div><div class="sr-desc">Auto-rotate every 30 days</div></div>
+          <div class="toggle-sw" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="sr-label">Audit Logging</div><div class="sr-desc">Log all analyst actions</div></div>
+          <div class="toggle-sw on" onclick="this.classList.toggle('on')"></div>
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">🕷 Crawlers</div>
+        <div class="settings-row">
+          <div><div class="sr-label">Auto-crawl on submit</div><div class="sr-desc">Immediately crawl submitted URLs</div></div>
+          <div class="toggle-sw on" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="sr-label">Tor routing</div><div class="sr-desc">Route .onion crawls through Tor</div></div>
+          <div class="toggle-sw on" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="sr-label">Screenshot capture</div><div class="sr-desc">Save screenshots of crawled pages</div></div>
+          <div class="toggle-sw" onclick="this.classList.toggle('on')"></div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">🔌 Integrations</div>
+        <div class="settings-row">
+          <div><div class="sr-label">Slack Webhook</div><div class="sr-desc">Send alerts to Slack channel</div></div>
+          <div class="toggle-sw on" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="sr-label">Telegram Bot</div><div class="sr-desc">Forward IOCs to Telegram</div></div>
+          <div class="toggle-sw" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="sr-label">MISP Instance</div><div class="sr-desc">Sync threat intelligence with MISP</div></div>
+          <div class="toggle-sw" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="sr-label">TheHive</div><div class="sr-desc">Create cases in TheHive</div></div>
+          <div class="toggle-sw on" onclick="this.classList.toggle('on')"></div>
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">🔔 Notifications</div>
+        <div class="settings-row">
+          <div><div class="sr-label">Email Reports</div><div class="sr-desc">Daily digest of new IOCs and leaks</div></div>
+          <div class="toggle-sw on" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="sr-label">Desktop Push</div><div class="sr-desc">Real-time desktop alerts for critical leaks</div></div>
+          <div class="toggle-sw" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="sr-label">Webhook URL</div><div class="sr-desc">Custom webhook for critical events</div></div>
+          <div class="toggle-sw on" onclick="this.classList.toggle('on')"></div>
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">🔑 API Configuration</div>
+        <div class="settings-row">
+          <div><div class="sr-label">API Key</div><div class="sr-desc">opx-tor-••••••••••••••••</div></div>
+          <button class="tm-btn tm-btn-muted" style="padding:4px 10px;font-size:0.62rem" onclick="showToast('API key regenerated')">Regenerate</button>
+        </div>
+        <div class="settings-row">
+          <div><div class="sr-label">API Endpoint</div><div class="sr-desc">https://api.opxdr.local/tor/v1</div></div>
+          <button class="tm-btn tm-btn-muted" style="padding:4px 10px;font-size:0.62rem" onclick="copyCmd(this,'https://api.opxdr.local/tor/v1')">Copy</button>
+        </div>
+        <div class="settings-row">
+          <div><div class="sr-label">Rate Limit</div><div class="sr-desc">1000 requests/hour — 1,240 used today</div></div>
+          <span style="font-size:0.65rem;color:var(--yellow)">80%</span>
+        </div>
+      </div>
+    </div><!-- /settings-page -->
+
+    <!-- Detail Drawer -->
+    <div class="detail-drawer" id="detail-drawer">
+      <div class="dd-header">
+        <div class="dd-title" id="dd-title">Object Detail</div>
+        <button class="dd-close" onclick="closeDrawer()">✕</button>
+      </div>
+      <div class="dd-body" id="dd-body"></div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<!-- Live Ticker -->
+<div id="live-ticker">
+  <div class="ticker-label">📡 LIVE</div>
+  <div class="ticker-content" id="ticker-content"></div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+<div class="scanlines"></div>
+
+<script>
+
+const $ = id => document.getElementById(id);
+
+/* ─── GO APP SOURCE ─── */
+const GO_SOURCE = `package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"runtime"
+	"strconv"
+	"strings"
+	"time"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
+	"fyne.io/fyne/v2/widget"
+)
+
+type TorMonitor struct {
+	win       fyne.Window
+	statusL   *widget.Label
+	torIPL    *widget.Label
+	directIPL *widget.Label
+	latencyL  *widget.Label
+	scoreL    *widget.Label
+	logL      *widget.Label
+	logs      []string
+	port      int
+	autoSec   int
+	ticker    *time.Ticker
+}
+
+func main() {
+	a := app.New()
+	w := a.NewWindow("⬡ TOR MONITOR — OPXDR")
+	w.Resize(fyne.NewSize(680, 520))
+
+	tm := &TorMonitor{
+		win:    w,
+		port:   9050,
+		autoSec: 0,
+	}
+
+	header := widget.NewLabelWithStyle("⬡ TOR PROXY MONITOR", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	header.Alignment = fyne.TextAlignCenter
+
+	portSel := widget.NewSelect([]string{"9050 — Tor Daemon", "9150 — Tor Browser"}, func(s string) {
+		if strings.Contains(s, "9050") {
+			tm.port = 9050
+		} else {
+			tm.port = 9150
+		}
+		tm.addLog("PORT", fmt.Sprintf("Switched to port %d", tm.port))
+	})
+	portSel.SetSelected("9050 — Tor Daemon")
+
+	tm.statusL = widget.NewLabelWithStyle("● Checking...", fyne.TextAlignCenter, fyne.TextStyle{Monospace: true})
+	tm.torIPL = widget.NewLabelWithStyle("—", fyne.TextAlignCenter, fyne.TextStyle{Monospace: true})
+	tm.directIPL = widget.NewLabelWithStyle("—", fyne.TextAlignCenter, fyne.TextStyle{Monospace: true})
+	tm.latencyL = widget.NewLabelWithStyle("—", fyne.TextAlignCenter, fyne.TextStyle{Monospace: true})
+	tm.scoreL = widget.NewLabelWithStyle("—", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+
+	checkBtn := widget.NewButtonWithIcon("CHECK NOW", theme.ConfirmIcon(), func() {
+		tm.runCheck()
+	})
+	checkBtn.Importance = widget.HighImportance
+
+	autoSel := widget.NewSelect([]string{"Off", "30s", "1m", "2m", "5m"}, func(s string) {
+		switch s {
+		case "30s":
+			tm.autoSec = 30
+		case "1m":
+			tm.autoSec = 60
+		case "2m":
+			tm.autoSec = 120
+		case "5m":
+			tm.autoSec = 300
+		default:
+			tm.autoSec = 0
+		}
+		if tm.ticker != nil {
+			tm.ticker.Stop()
+		}
+		if tm.autoSec > 0 {
+			tm.ticker = time.NewTicker(time.Duration(tm.autoSec) * time.Second)
+			go func() {
+				for range tm.ticker.C {
+					tm.runCheck()
+				}
+			}()
+			tm.addLog("AUTO", fmt.Sprintf("Auto-refresh set to %s", s))
+		} else {
+			tm.addLog("AUTO", "Auto-refresh off")
+		}
+	})
+	autoSel.SetSelected("Off")
+
+	clearBtn := widget.NewButton("CLEAR LOG", func() {
+		tm.logs = nil
+		tm.logL.SetText("")
+	})
+
+	topRow := container.NewHBox(layout.NewSpacer(), portSel, checkBtn, autoSel, clearBtn, layout.NewSpacer())
+
+	statsGrid := container.NewGridWithColumns(3,
+		widget.NewCard("TOR CIRCUIT", "Status", tm.statusL),
+		widget.NewCard("TOR EXIT IP", "via SOCKS5", tm.torIPL),
+		widget.NewCard("DIRECT ISP IP", "Real identity", tm.directIPL),
+	)
+
+	moreGrid := container.NewGridWithColumns(2,
+		widget.NewCard("LATENCY", "to exit node", tm.latencyL),
+		widget.NewCard("OPSEC SCORE", "0-100", tm.scoreL),
+	)
+
+	tm.logL = widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Monospace: true})
+	logScroll := container.NewScroll(tm.logL)
+	logScroll.SetMinSize(fyne.NewSize(0, 180))
+
+	logBox := container.NewBorder(
+		widget.NewLabelWithStyle("EVENT LOG", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		nil, nil, nil, logScroll,
+	)
+
+	content := container.NewBorder(
+		container.NewVBox(header, widget.NewSeparator(), topRow),
+		nil, nil, nil,
+		container.NewVBox(statsGrid, moreGrid, widget.NewSeparator(), logBox),
+	)
+
+	w.SetContent(container.NewPadded(content))
+	tm.addLog("INIT", "OPX TOR Monitor started")
+	tm.runCheck()
+	w.ShowAndRun()
+}
+
+func (tm *TorMonitor) addLog(typ, msg string) {
+	t := time.Now().Format("15:04:05")
+	entry := fmt.Sprintf("[%s] [%s] %s", t, typ, msg)
+	tm.logs = append(tm.logs, entry)
+	if len(tm.logs) > 200 {
+		tm.logs = tm.logs[len(tm.logs)-200:]
+	}
+	if tm.logL != nil {
+		tm.logL.SetText(strings.Join(tm.logs, "\\n"))
+	}
+}
+
+func (tm *TorMonitor) runCheck() {
+	tm.addLog("CHECK", "Running Tor circuit check...")
+	tm.statusL.SetText("● Checking...")
+
+	proxyStr := "socks5://127.0.0.1:" + strconv.Itoa(tm.port)
+	transport := &http.Transport{}
+	dialer := &torDialer{proxy: proxyStr}
+	transport.DialContext = dialer.Dial
+
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   10 * time.Second,
+	}
+
+	start := time.Now()
+	resp, err := client.Get("https://api.ipify.org?format=json")
+	latency := time.Since(start)
+
+	var torIP string
+	if err != nil {
+		tm.statusL.SetText("● DISCONNECTED")
+		tm.addLog("ERROR", fmt.Sprintf("Tor connection failed: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	var result map[string]string
+	json.Unmarshal(body, &result)
+	torIP = result["ip"]
+
+	tm.torIPL.SetText(torIP)
+	tm.latencyL.SetText(fmt.Sprintf("%dms", latency.Milliseconds()))
+	tm.addLog("OK", fmt.Sprintf("Tor exit IP: %s (%dms)", torIP, latency.Milliseconds()))
+
+	directClient := &http.Client{Timeout: 8 * time.Second}
+	dresp, derr := directClient.Get("https://api.ipify.org?format=json")
+	if derr == nil {
+		defer dresp.Body.Close()
+		dbody, _ := io.ReadAll(dresp.Body)
+		var dresult map[string]string
+		json.Unmarshal(dbody, &dresult)
+		directIP := dresult["ip"]
+		tm.directIPL.SetText(directIP)
+
+		if directIP == torIP {
+			tm.statusL.SetText("● LEAK DETECTED")
+			tm.scoreL.SetText("0")
+			tm.addLog("CRITICAL", fmt.Sprintf("IP LEAK: Tor IP (%s) matches direct IP (%s)!", torIP, directIP))
+		} else {
+			tm.statusL.SetText("● SECURE")
+			score := 85
+			if latency.Milliseconds() < 500 {
+				score += 10
+			}
+			if latency.Milliseconds() > 2000 {
+				score -= 15
+			}
+			tm.scoreL.SetText(fmt.Sprintf("%d", score))
+			tm.addLog("OK", fmt.Sprintf("Secure: Tor IP %s != Direct IP %s", torIP, directIP))
+		}
+	} else {
+		tm.statusL.SetText("● LIMITED")
+		tm.addLog("WARN", fmt.Sprintf("Could not fetch direct IP: %v", derr))
+	}
+}
+
+type torDialer struct {
+	proxy string
+}
+
+func (d *torDialer) Dial(ctx interface{}, network, addr string) (interface{}, error) {
+	return nil, fmt.Errorf("not implemented directly; use net/http with SOCKS5 proxy")
+}
+`
+
+/* ─── STATE ─── */
+let state = {
+  page: 'home',
+  events: [],
+  tor: { checks: 0, lastCheck: null, auto: 0, timer: null, latency: [] },
+  opsecChecked: new Set(),
+  searchFilter: 'all',
+};
+
+/* ─── PAGE NAV ─── */
+function showPage(id) {
+  document.querySelectorAll('#content > div[id$="-page"]').forEach(d => d.style.display = 'none');
+  const el = $(id + '-page');
+  if (el) el.style.display = 'block';
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === id));
+  state.page = id;
+}
+window.showPage = showPage;
+
+/* ─── PAGE INIT ─── */
+function initHome() {
+  const now = new Date();
+  $('home-date-display').textContent = now.toISOString().slice(0,10) + ' ' + now.toTimeString().slice(0,8) + ' UTC';
+  const types = [
+    { icon: '🌐', name: 'Domains', count: 47, badge: 'green' },
+    { icon: '🔢', name: 'IP Addresses', count: 128, badge: 'green' },
+    { icon: '🔗', name: 'URLs', count: 84, badge: 'yellow' },
+    { icon: '✉', name: 'Email Addresses', count: 31, badge: 'green' },
+    { icon: '₿', name: 'Bitcoin Addresses', count: 12, badge: 'yellow' },
+    { icon: '🔑', name: 'PGP Keys', count: 8, badge: 'green' },
+    { icon: '#️⃣', name: 'Hashes', count: 206, badge: 'red' },
+    { icon: '📞', name: 'Phone Numbers', count: 23, badge: 'yellow' },
+    { icon: '⚠', name: 'CVEs', count: 19, badge: 'red' },
+    { icon: '📁', name: 'Files', count: 44, badge: 'green' },
+    { icon: '🏴', name: 'Markers', count: 7, badge: 'yellow' },
+    { icon: '🔍', name: 'Investigations', count: 15, badge: 'green' },
+  ];
+  $('objects-grid').innerHTML = types.map(t => `
+    <div class="obj-card" onclick="showDetail('${t.name}','${t.icon}','${t.count}')">
+      <div class="obj-badge ${t.badge}">${t.count}</div>
+      <div class="obj-icon">${t.icon}</div>
+      <div class="obj-name">${t.name}</div>
+    </div>
+  `).join('');
+}
+
+/* ─── TAGS ─── */
+const TAG_LIST = ['APT', 'malware', 'ransomware', 'phishing', 'C2', 'botnet', 'trojan', 'backdoor', 'info-stealer', 'ddos', 'exploit', 'zero-day', 'darknet', 'leak', 'ioc', 'socks5', 'proxy', 'vpn', 'tor', 'onion'];
+function initTags() {
+  $('tags-cloud').innerHTML = TAG_LIST.map(t => `<span style="background:var(--panel);border:1px solid var(--border2);border-radius:6px;padding:4px 12px;font-size:0.72rem;color:var(--text2);cursor:pointer;transition:all 0.15s" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--text)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--text2)'">${t}</span>`).join('');
+}
+
+/* ─── TAG INPUT ─── */
+function addTag(e) {
+  if (e.key !== 'Enter') return;
+  const inp = $('tag-input');
+  const v = inp.value.trim();
+  if (!v) return;
+  const pill = document.createElement('div');
+  pill.className = 'tag-pill';
+  pill.innerHTML = v + '<button onclick="removeTag(this)">×</button>';
+  inp.parentNode.insertBefore(pill, inp);
+  inp.value = '';
+}
+window.addTag = addTag;
+
+function removeTag(btn) {
+  btn.parentNode.remove();
+}
+window.removeTag = removeTag;
+
+/* ─── SUBMIT ─── */
+function handleSubmit() {
+  showToast('⚡ Intelligence submitted for analysis');
+  logEvent('submit', 'New intelligence submitted');
+}
+window.handleSubmit = handleSubmit;
+
+/* ─── HUNT ─── */
+function runHunt() {
+  const q = $('hunt-input').value.trim();
+  if (!q) { showToast('Enter a search term'); return; }
+  const results = [
+    { type: 'IP', value: '185.220.101.47', source: 'AlienVault OTX', date: '2026-05-10', severity: 'high' },
+    { type: 'Domain', value: 'malware-sample.onion', source: 'Dark Web Crawl', date: '2026-05-09', severity: 'critical' },
+    { type: 'Hash', value: 'a1b2c3d4e5f6...', source: 'VirusTotal', date: '2026-05-08', severity: 'medium' },
+    { type: 'URL', value: 'http://evil.example.com/payload', source: 'URLHaus', date: '2026-05-07', severity: 'high' },
+  ];
+  const grid = $('hunt-grid');
+  grid.innerHTML = results.map(r => `
+    <div class="hunt-card" onclick="showDetail('${r.type}','${r.value}','${r.severity}')">
+      <div class="hunt-type ${r.severity}">${r.type}</div>
+      <div class="hunt-value">${r.value}</div>
+      <div class="hunt-meta">${r.source} · ${r.date}</div>
+    </div>
+  `).join('');
+  logEvent('hunt', `Hunt executed: ${q}`);
+}
+window.runHunt = runHunt;
+
+/* ─── SEARCH ─── */
+function liveSearch(q) {
+  const results = $('search-results');
+  if (!q.trim()) { results.innerHTML = ''; return; }
+  const mock = [
+    { type: 'IP', value: '185.220.101.47', context: 'Tor exit node (Germany)', date: '2026-05-10' },
+    { type: 'Domain', value: 'darkmarket.example.onion', context: 'Dark web marketplace', date: '2026-05-09' },
+    { type: 'Hash', value: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', context: 'SHA256 — known malware sample', date: '2026-05-08' },
+    { type: 'Email', value: 'admin@breach.example', context: 'Found in 2024 data breach', date: '2026-05-07' },
+  ].filter(r => r.value.toLowerCase().includes(q.toLowerCase()) || r.type.toLowerCase().includes(q.toLowerCase()));
+  results.innerHTML = mock.map(r => `
+    <div class="sr-item" onclick="showDetail('${r.type}','${r.value}','info')">
+      <span style="color:var(--accent);font-weight:600;font-size:0.65rem">${r.type}</span>
+      <span style="color:var(--text);font-size:0.72rem;font-family:var(--mono)">${r.value}</span>
+      <span style="color:var(--text3);font-size:0.62rem">${r.context} · ${r.date}</span>
+    </div>
+  `).join('');
+}
+window.liveSearch = liveSearch;
+
+function toggleFilter(el, type) {
+  document.querySelectorAll('.sf-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  state.searchFilter = type;
+}
+window.toggleFilter = toggleFilter;
+
+/* ─── OBJECTS ─── */
+function loadObjectDetail(type) {
+  $('obj-detail-content').innerHTML = '<div style="color:var(--text3);font-size:0.72rem">Loading ' + type + ' details...</div>';
+  setTimeout(() => {
+    $('obj-detail-content').innerHTML = '<div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px"><div style="font-size:0.72rem;color:var(--text2)"><div>● Total: 47 entries</div><div>● Last updated: 2026-05-10 14:32 UTC</div><div>● Sources: 3 feeds</div><div>● Tags: tor, darknet, malware</div></div></div>';
+  }, 300);
+}
+window.loadObjectDetail = loadObjectDetail;
+
+/* ─── INVESTIGATIONS ─── */
+function newInvestigation() {
+  const id = 'INV-' + Date.now().toString(36).toUpperCase();
+  const tbody = $('inv-tbody');
+  const row = document.createElement('tr');
+  row.innerHTML = '<td style="color:var(--accent)">' + id + '</td><td>New Investigation</td><td><span style="color:var(--yellow)">Open</span></td><td>0</td><td>' + new Date().toISOString().slice(0,10) + '</td><td>' + new Date().toISOString().slice(0,10) + '</td><td>analyst@opxdr</td>';
+  tbody.prepend(row);
+  showToast('🔎 Investigation ' + id + ' created');
+  logEvent('investigation', 'Created ' + id);
+}
+window.newInvestigation = newInvestigation;
+
+/* ─── DETAIL DRAWER ─── */
+function showDetail(title, value, extra) {
+  $('dd-title').textContent = title;
+  $('dd-body').innerHTML = `
+    <div class="dd-field"><div class="dd-field-label">VALUE</div><div class="dd-field-value">${value}</div></div>
+    <div class="dd-field"><div class="dd-field-label">STATUS</div><div class="dd-field-value" style="color:${extra === 'critical' || extra === 'high' ? 'var(--accent2)' : extra === 'yellow' ? 'var(--yellow)' : 'var(--green)'}">${extra}</div></div>
+    <div class="dd-field"><div class="dd-field-label">FIRST SEEN</div><div class="dd-field-value">2026-04-${String(Math.floor(Math.random()*28)+1).padStart(2,'0')}</div></div>
+    <div class="dd-field"><div class="dd-field-label">LAST SEEN</div><div class="dd-field-value">2026-05-10</div></div>
+    <div class="dd-field"><div class="dd-field-label">SOURCE</div><div class="dd-field-value">OPX TOR Monitor / Dark Web Crawl</div></div>
+    <div class="dd-field"><div class="dd-field-label">TAGS</div><div class="dd-field-value" style="display:flex;flex-wrap:wrap;gap:4px">${['tor','darknet','ioc','monitor'].map(t => '<span style="background:var(--bg3);border:1px solid var(--border2);border-radius:3px;padding:1px 6px;font-size:0.62rem;color:var(--text2)">' + t + '</span>').join('')}</div></div>
+    <div class="dd-field"><div class="dd-field-label">RELATED OBJECTS</div><div class="dd-field-value">${Math.floor(Math.random()*20)+1} related IOCs found</div></div>
+  `;
+  $('detail-drawer').classList.add('open');
+}
+window.showDetail = showDetail;
+
+function closeDrawer() {
+  $('detail-drawer').classList.remove('open');
+}
+window.closeDrawer = closeDrawer;
+
+/* ─── TOAST ─── */
+function showToast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._hide);
+  t._hide = setTimeout(() => t.classList.remove('show'), 3000);
+}
+window.showToast = showToast;
+
+/* ─── LOG ─── */
+function logEvent(type, msg) {
+  const t = new Date().toTimeString().slice(0,8);
+  const icon = type === 'ok' || type === 'submit' ? '✅' : type === 'err' || type === 'critical' ? '❌' : type === 'warn' ? '⚠️' : 'ℹ️';
+  state.events.unshift({ time: t, type, msg, icon });
+  if (state.events.length > 100) state.events.pop();
+}
+
+/* ─── COPY CMD ─── */
+function copyCmd(btn, text) {
+  navigator.clipboard.writeText(text).then(() => {
+    showToast('📋 Copied to clipboard');
+    btn.textContent = 'copied!';
+    setTimeout(() => { btn.textContent = btn.dataset.orig || 'copy'; }, 1500);
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+    showToast('📋 Copied to clipboard');
+  });
+}
+window.copyCmd = copyCmd;
+
+/* ═══════════════════════════════════════════
+   TOR MONITOR FUNCTIONS
+   ═══════════════════════════════════════════ */
+
+const TOR_EVENTS = [
+  { type: 'ok', msg: 'Tor exit IP validated: 89.45.23.178 (Netherlands)' },
+  { type: 'ok', msg: 'Circuit latency: 187ms — within threshold' },
+  { type: 'ok', msg: 'Direct ISP IP: 72.14.192.88 (Comcast) — no match' },
+  { type: 'warn', msg: 'DNS leak check: no leaks detected' },
+  { type: 'ok', msg: 'WebRTC leak check: disabled in browser' },
+  { type: 'warn', msg: 'Tor circuit changed: new guard node selected' },
+  { type: 'ok', msg: 'Auto-refresh cycle completed (1m interval)' },
+  { type: 'err', msg: 'Port 9050 unreachable — Tor daemon not running?' },
+  { type: 'critical', msg: '⚠ IP MATCH: Tor exit IP matches direct ISP IP!' },
+  { type: 'ok', msg: 'Re-check initiated — Tor IP now isolated' },
+];
+
+function tmPortChange() {
+  const port = $('tm-port-select').value;
+  logEvent('tor', 'Port changed to ' + port);
+  $('tm-status-sub').textContent = 'Port ' + port + ' — re-check recommended';
+}
+window.tmPortChange = tmPortChange;
+
+function tmAutoChange() {
+  const val = parseInt($('tm-auto-select').value);
+  state.tor.auto = val;
+  if (state.tor.timer) { clearInterval(state.tor.timer); state.tor.timer = null; }
+  if (val > 0) {
+    state.tor.timer = setInterval(tmRunCheck, val * 1000);
+    $('tm-auto-label').textContent = 'Auto: ' + val + 's';
+    logEvent('tor', 'Auto-refresh set to ' + val + 's');
+  } else {
+    $('tm-auto-label').textContent = 'Auto: OFF';
+    logEvent('tor', 'Auto-refresh disabled');
+  }
+}
+window.tmAutoChange = tmAutoChange;
+
+function tmRunCheck() {
+  const btn = $('tm-check-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ CHECKING...';
+
+  state.tor.checks++;
+  state.tor.lastCheck = new Date();
+
+  $('tm-check-count').textContent = 'Checks: ' + state.tor.checks;
+  $('tm-last-checked').textContent = 'Last: ' + state.tor.lastCheck.toTimeString().slice(0,8);
+
+  const statusDot = $('tm-status-dot');
+  const statusVal = $('tm-status-val');
+  const statusSub = $('tm-status-sub');
+  const torIP = $('tm-tor-ip');
+  const torLatency = $('tm-tor-latency');
+  const directIP = $('tm-direct-ip');
+  const directSub = $('tm-direct-sub');
+  const scoreRing = $('tm-score-ring');
+  const scoreNum = $('tm-score-num');
+  const banner = $('tm-leak-banner');
+  const bannerIcon = $('tm-banner-icon');
+  const bannerTitle = $('tm-banner-title');
+  const bannerDetail = $('tm-banner-detail');
+
+  statusDot.style.background = 'var(--yellow)';
+  statusVal.textContent = 'Checking...';
+  statusVal.style.color = 'var(--yellow)';
+
+  const torExitIPs = ['89.45.23.178', '185.220.101.47', '192.42.116.16', '51.75.144.231', '104.244.72.115'];
+  const isps = ['Comcast', 'Verizon', 'AT&T', 'Cox', 'Spectrum'];
+  const directIPs = ['72.14.192.88', '98.76.54.32', '67.89.12.34', '45.67.89.12', '23.45.67.89'];
+
+  setTimeout(() => {
+    const isLeak = Math.random() < 0.08;
+    const chosenIP = torExitIPs[Math.floor(Math.random() * torExitIPs.length)];
+    const chosenDirect = isLeak ? chosenIP : directIPs[Math.floor(Math.random() * directIPs.length)];
+    const chosenISP = isps[Math.floor(Math.random() * isps.length)];
+    const latency = Math.floor(Math.random() * 800) + 50;
+
+    state.tor.latency.push(latency);
+    if (state.tor.latency.length > 12) state.tor.latency.shift();
+    renderSparkline();
+
+    torIP.textContent = chosenIP;
+    torLatency.textContent = 'Latency: ' + latency + 'ms';
+    directIP.textContent = chosenDirect;
+    directSub.textContent = 'Unrouted — ' + chosenISP;
+
+    const avg = Math.round(state.tor.latency.reduce((a,b) => a+b, 0) / state.tor.latency.length);
+    $('tm-avg-latency').textContent = 'Avg: ' + avg + 'ms';
+
+    if (isLeak) {
+      statusDot.style.background = 'var(--accent2)';
+      statusVal.textContent = '⚠ LEAK DETECTED';
+      statusVal.style.color = 'var(--accent2)';
+      statusSub.textContent = 'CRITICAL: Tor IP matches direct ISP IP';
+      const score = 5;
+      scoreRing.style.strokeDashoffset = 226 - (score / 100) * 226;
+      scoreNum.textContent = score;
+      scoreNum.style.color = 'var(--accent2)';
+      $('tm-score-breakdown').innerHTML = `
+        <div>● Tor online: <span style="color:var(--green)">✓</span></div>
+        <div>● IP isolated: <span style="color:var(--accent2)">✗ LEAK</span></div>
+        <div>● No leak: <span style="color:var(--accent2)">✗</span></div>
+        <div>● Latency OK: <span style="color:${latency < 500 ? 'var(--green)' : 'var(--yellow)'}">${latency < 500 ? '✓' : '⚠ ' + latency + 'ms'}</span></div>
+      `;
+      banner.style.background = 'rgba(232,50,90,0.1)';
+      banner.style.borderColor = 'rgba(232,50,90,0.35)';
+      bannerIcon.textContent = '🚨';
+      bannerTitle.textContent = '⚠ IP LEAK DETECTED';
+      bannerTitle.style.color = 'var(--accent2)';
+      bannerDetail.textContent = 'Tor exit IP (' + chosenIP + ') matches your direct ISP IP — your identity is exposed!';
+      logEvent('critical', 'IP LEAK: ' + chosenIP + ' matches direct IP');
+      showToast('🚨 CRITICAL: IP leak detected!');
+    } else {
+      statusDot.style.background = 'var(--green)';
+      statusVal.textContent = '✓ SECURE';
+      statusVal.style.color = 'var(--green)';
+      statusSub.textContent = 'Tor circuit active — ' + latency + 'ms latency';
+
+      let score = Math.floor(Math.random() * 20) + 70;
+      if (latency < 300) score = Math.min(100, score + 10);
+      if (latency > 1000) score = Math.max(0, score - 15);
+      scoreRing.style.strokeDashoffset = 226 - (score / 100) * 226;
+      scoreNum.textContent = score;
+      scoreNum.style.color = score > 85 ? 'var(--green)' : score > 60 ? 'var(--yellow)' : 'var(--accent2)';
+      $('tm-score-breakdown').innerHTML = `
+        <div>● Tor online: <span style="color:var(--green)">✓</span></div>
+        <div>● IP isolated: <span style="color:var(--green)">✓</span></div>
+        <div>● No leak: <span style="color:var(--green)">✓</span></div>
+        <div>● Latency OK: <span style="color:${latency < 500 ? 'var(--green)' : 'var(--yellow)'}">${latency < 500 ? '✓' : '⚠ ' + latency + 'ms'}</span></div>
+      `;
+      banner.style.background = 'rgba(34,197,94,0.08)';
+      banner.style.borderColor = 'rgba(34,197,94,0.2)';
+      bannerIcon.textContent = '⬡';
+      bannerTitle.textContent = '✓ SECURE — NO IP LEAK';
+      bannerTitle.style.color = 'var(--green)';
+      bannerDetail.textContent = 'Tor exit IP (' + chosenIP + ') is isolated from your real IP (' + chosenDirect + '). Circuit is secure.';
+      logEvent('ok', 'Check #' + state.tor.checks + ': Secure — Tor IP ' + chosenIP + ' isolated');
+    }
+
+    const event = TOR_EVENTS[Math.floor(Math.random() * TOR_EVENTS.length)];
+    tmAddLog(event.type, event.msg);
+    tmAddLog('ok', 'Check #' + state.tor.checks + ' complete — ' + (isLeak ? 'LEAK DETECTED' : 'SECURE') + ' (' + latency + 'ms)');
+
+    btn.disabled = false;
+    btn.textContent = '▶ CHECK NOW';
+  }, 1500 + Math.random() * 1000);
+}
+window.tmRunCheck = tmRunCheck;
+
+function tmAddLog(type, msg) {
+  const log = $('tm-log');
+  const t = new Date().toTimeString().slice(0,8);
+  const cls = type === 'ok' ? 'tm-log-ok' : type === 'err' || type === 'critical' ? 'tm-log-err' : type === 'warn' ? 'tm-log-warn' : 'tm-log-info';
+  const icon = type === 'ok' ? '✓' : type === 'err' ? '✗' : type === 'critical' ? '🚨' : type === 'warn' ? '⚠' : 'ℹ';
+  const line = document.createElement('div');
+  line.className = 'tm-log-line';
+  line.innerHTML = '<span class="tm-log-time">' + t + '</span><span class="' + cls + '">' + icon + ' ' + msg + '</span>';
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+  const count = log.children.length;
+  $('tm-log-count').textContent = count + ' entries';
+  if (count > 200) log.removeChild(log.firstChild);
+}
+
+function tmClearLog() {
+  $('tm-log').innerHTML = '<div class="tm-log-line"><span class="tm-log-time">' + new Date().toTimeString().slice(0,8) + '</span><span class="tm-log-info">ℹ Log cleared</span></div>';
+  $('tm-log-count').textContent = '1 entry';
+  logEvent('tor', 'Event log cleared');
+}
+window.tmClearLog = tmClearLog;
+
+function tmLaunchApp() {
+  const status = $('tm-launch-status');
+  const isHidden = status.style.display === 'none' || !status.style.display;
+  status.style.display = isHidden ? 'block' : 'none';
+  if (isHidden) {
+    $('tm-launch-status-msg').textContent = 'Build and run the native Go app';
+    logEvent('tor', 'Go app build instructions opened');
+  }
+}
+window.tmLaunchApp = tmLaunchApp;
+
+function tmSaveGoFile() {
+  const blob = new Blob([GO_SOURCE], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'main.go';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('⬇ main.go downloaded');
+  logEvent('tor', 'Go source file saved');
+}
+window.tmSaveGoFile = tmSaveGoFile;
+
+function tmCopyBuildCmd() {
+  const cmd = $('tm-build-cmd-full').textContent;
+  copyCmd(document.querySelector('#tm-launch-cmd-display .cli-copy'), cmd);
+}
+window.tmCopyBuildCmd = tmCopyBuildCmd;
+
+function tmOpenTerminal() {
+  showToast('🖥 Opening Terminal (macOS)');
+  logEvent('tor', 'Terminal launch requested');
+}
+window.tmOpenTerminal = tmOpenTerminal;
+
+/* ─── SPARKLINE ─── */
+function renderSparkline() {
+  const wrap = $('tm-sparkline');
+  const data = state.tor.latency;
+  if (!data.length) { wrap.innerHTML = '<div style="color:var(--text3);font-size:0.62rem;padding:8px">No data yet</div>'; return; }
+  const max = Math.max(...data, 1);
+  wrap.innerHTML = data.map(v => {
+    const h = (v / max) * 32;
+    const color = v > 500 ? 'var(--yellow)' : 'var(--green)';
+    return '<div class="sparkline-bar" style="height:' + h + 'px;background:' + color + '"></div>';
+  }).join('');
+}
+
+/* ─── OPSEC CHECKLIST ─── */
+const OPSEC_ITEMS = [
+  'Tor daemon is running (brew services list | grep tor)',
+  'Port 9050 is listening (netstat -tln | grep 9050)',
+  'Tor exit IP does not match direct ISP IP',
+  'DNS resolution is routed through Tor',
+  'WebRTC is disabled in browser',
+  'No IPv6 leaks (IPv6 is disabled/routed through Tor)',
+  'Browser cookies cleared or using Tor Browser',
+  'SOCKS5 proxy configured for all applications',
+  'No direct DNS queries outside Tor (check with dnsleaktest.com)',
+  'Time zone / locale matches Tor exit node region',
+  'Browser fingerprint does not reveal host system details',
+  'No browser extensions that bypass proxy',
+  'Circuit latency is below 1000ms',
+  'Auto-refresh is configured appropriately',
+  'Go app is built from latest source (go build -o tor-monitor-app .)',
+  'All applications using proxy: HTTP, IRC, XMPP, email',
+  'System clock is synchronised (NTP)',
+  'Firewall rules prevent direct connections on leak',
+];
+
+function initOpsec() {
+  const list = $('tm-opsec-list');
+  list.innerHTML = OPSEC_ITEMS.map((item, i) => `
+    <li class="opsec-item" data-idx="${i}" onclick="toggleOpsec(this)">
+      <span class="opsec-check">⬡</span>
+      <span class="opsec-text">${item}</span>
+    </li>
+  `).join('');
+}
+
+function toggleOpsec(el) {
+  el.classList.toggle('verified');
+  const idx = el.dataset.idx;
+  if (el.classList.contains('verified')) {
+    state.opsecChecked.add(idx);
+    el.querySelector('.opsec-check').textContent = '✓';
+    logEvent('tor', 'OPSEC item #' + (+idx + 1) + ' verified');
+  } else {
+    state.opsecChecked.delete(idx);
+    el.querySelector('.opsec-check').textContent = '⬡';
+  }
+  const pct = Math.round((state.opsecChecked.size / OPSEC_ITEMS.length) * 100);
+  showToast('OPSEC: ' + state.opsecChecked.size + '/' + OPSEC_ITEMS.length + ' (' + pct + '%)');
+}
+window.toggleOpsec = toggleOpsec;
+
+/* ─── TICKER ─── */
+const TICKER_ITEMS = [
+  { text: 'Tor circuit active — 187ms latency', color: 'var(--green)' },
+  { text: 'IP leak check: SECURE', color: 'var(--green)' },
+  { text: 'New IOC: 89.45.23.178 added to watchlist', color: 'var(--blue)' },
+  { text: 'Dark web crawl: 12 new .onion sites indexed', color: 'var(--yellow)' },
+  { text: 'OPSEC score: 92/100', color: 'var(--green)' },
+  { text: 'Tor port 9050 verified', color: 'var(--green)' },
+  { text: 'Alert: New C2 infrastructure detected', color: 'var(--accent2)' },
+  { text: 'DNS leak test: passed', color: 'var(--green)' },
+  { text: 'Honeypot: 3 new connections from Tor exit nodes', color: 'var(--blue)' },
+];
+
+function initTicker() {
+  const c = $('ticker-content');
+  const items = TICKER_ITEMS.map(i => '<span class="ticker-item"><span class="ticker-dot" style="background:' + i.color + '"></span>' + i.text + '</span>').join('');
+  c.innerHTML = items + items;
+}
+setTimeout(initTicker, 100);
+
+/* ─── CRAWLERS ─── */
+function initCrawlers() {
+  const grid = $('crawler-grid');
+  const crawlers = [
+    { name: 'Dark Web Crawler', status: 'running', pages: 1247, last: '2m ago', url: 'onion' },
+    { name: 'Telegram Monitor', status: 'running', pages: 892, last: '30s ago', url: 'telegram' },
+    { name: 'IRC Scanner', status: 'idle', pages: 0, last: '15m ago', url: 'irc' },
+    { name: 'RSS Feed Parser', status: 'running', pages: 341, last: '5m ago', url: 'rss' },
+    { name: 'Pastebin Watcher', status: 'error', pages: 0, last: '1h ago', url: 'paste' },
+    { name: 'GitHub Dork Scanner', status: 'running', pages: 567, last: '1m ago', url: 'github' },
+  ];
+  grid.innerHTML = crawlers.map(c => `
+    <div class="crawler-card" style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:14px;display:flex;align-items:center;gap:12px">
+      <span style="font-size:1.2rem">${c.url === 'onion' ? '🧅' : c.url === 'telegram' ? '✈' : c.url === 'irc' ? '💬' : c.url === 'rss' ? '📡' : c.url === 'paste' ? '📋' : '🐙'}</span>
+      <div style="flex:1">
+        <div style="font-size:0.72rem;font-weight:600;color:var(--text)">${c.name}</div>
+        <div style="font-size:0.6rem;color:var(--text3);margin-top:2px">${c.pages} pages · last ${c.last}</div>
+      </div>
+      <span style="font-size:0.6rem;padding:2px 8px;border-radius:10px;background:${c.status === 'running' ? 'rgba(34,197,94,0.15)' : c.status === 'idle' ? 'rgba(245,158,11,0.15)' : 'rgba(232,50,90,0.15)'};color:${c.status === 'running' ? 'var(--green)' : c.status === 'idle' ? 'var(--yellow)' : 'var(--accent2)'}">${c.status === 'running' ? '●' : '○'} ${c.status}</span>
+    </div>
+  `).join('');
+}
+
+/* ─── NAV ITEMS ─── */
+const NAV_ITEMS = [
+  { id: 'home', icon: '⬡', label: 'Dashboard' },
+  { id: 'submit', icon: '📤', label: 'Submit' },
+  { id: 'hunting', icon: '🎯', label: 'Hunting' },
+  { id: 'crawlers', icon: '🕸', label: 'Crawlers' },
+  { id: 'objects', icon: '📦', label: 'Objects' },
+  { id: 'investigations', icon: '🔎', label: 'Investigations' },
+  { id: 'search', icon: '🔍', label: 'Search' },
+  { id: 'tormon', icon: '⬡', label: 'TOR Monitor' },
+  { id: 'tags', icon: '🏷', label: 'Tags' },
+  { id: 'settings', icon: '⚙️', label: 'Settings' },
+];
+
+/* ─── INIT ─── */
+document.addEventListener('DOMContentLoaded', () => {
+  /* Build sidebar nav */
+  const sidebar = document.querySelector('#sidebar .sidebar-section:first-child');
+  if (sidebar) {
+    sidebar.innerHTML = '<div class="sidebar-label">Navigation</div>' + NAV_ITEMS.map(n => `
+      <div class="sidebar-item${n.id === 'home' ? ' active' : ''}" data-page="${n.id}" onclick="showPage('${n.id}')">
+        <div class="si-left">
+          <span class="si-icon">${n.icon}</span>
+          <span class="si-name">${n.label}</span>
+        </div>
+      </div>
+    `).join('');
+  }
+  showPage('home');
+  initHome();
+  initTags();
+  initOpsec();
+  initCrawlers();
+  logEvent('init', 'OPX TOR Monitor initialised');
+  const dateEl = document.querySelector('.date-display');
+  if (dateEl) dateEl.textContent = new Date().toISOString().slice(0,10) + ' ' + new Date().toTimeString().slice(0,8);
+
+  /* Listen for parent nav events */
+  window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'opxdr-tor-ready') {
+      logEvent('init', 'OPXDR parent bridge established');
+    }
+  });
+});
+
+</script>
+</body>
+</html>

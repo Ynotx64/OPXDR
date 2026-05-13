@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
+import GeoIntel from "./GeoIntel";
+import TorMonitor from "./TorMonitor";
 
 // ─── STORAGE ──────────────────────────────────────────────────────────────────
 // Swap 1: window.storage → localStorage
 const SK_RULES = "wazuh_soc_rules_v4";
 const SK_ALERTS = "wazuh_soc_alerts_v4";
+const SK_DOCS   = "opxdr_documents_v1";
 async function dbLoad(k) { try { const r = localStorage.getItem(k); return r ? JSON.parse(r) : null; } catch { return null; } }
 async function dbSave(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 
@@ -32,7 +35,7 @@ function deriveMeta(t) {
   if(/impact|ransom|ddos|wipe/.test(s))              return "Impact";
   return "Defense Evasion";
 }
-function sevFromLevel(l) { const n=parseInt(l); if(n>=15)return"CRITICAL"; if(n>=12)return"HIGH"; if(n>=8)return"MEDIUM"; return"LOW"; }
+function sevFromLevel(l) { const n=parseInt(l); if(n>=15)return"CRITICAL"; if(n>=12)return"HIGH"; if(n>=7)return"MEDIUM"; return"LOW"; }
 
 function parseXML(xmlText) {
   const errors=[],extracted=[];
@@ -216,6 +219,48 @@ async function claude(system, messages, onChunk) {
   return full;
 }
 
+// Multi-agent call — routes to /api/agent which selects model per agentType
+// Handles both OpenAI SSE format (OCZ/OpenRouter) and Anthropic SSE format (fallback)
+async function callAgent(agentType, messages, onChunk, { system } = {}) {
+  const msgs = system ? [{ role:"system", content:system }, ...messages] : messages;
+  const res = await fetch("/api/agent", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({ agentType, messages:msgs, stream:true }),
+  });
+  if (!res.ok) {
+    const t = `[Agent ${agentType} error: ${res.status}]`;
+    onChunk(t); return t;
+  }
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let full = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    for (const ln of dec.decode(value).split("\n")) {
+      if (!ln.startsWith("data:")) continue;
+      const d = ln.slice(5).trim();
+      if (d === "[DONE]") continue;
+      try {
+        const j = JSON.parse(d);
+        // OpenAI / OpenRouter format
+        const t1 = j.choices?.[0]?.delta?.content ?? "";
+        // Anthropic SSE format (fallback path)
+        const t2 = (j.type === "content_block_delta" && j.delta?.text) ? j.delta.text : "";
+        const chunk = t1 || t2;
+        if (chunk) { full += chunk; onChunk(full); }
+      } catch {}
+    }
+  }
+  if (!full) {
+    const errMsg = `[Agent ${agentType} returned empty response — all models may be unavailable or timed out. Check backend logs and verify API key at https://opencode.ai/zen/]`;
+    onChunk(errMsg);
+    return errMsg;
+  }
+  return full;
+}
+
 // ─── MARKDOWN RENDERER ────────────────────────────────────────────────────────
 function MD({text,color="#38bdf8"}){
   return<div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:"0.74rem",lineHeight:1.75,color:"#cbd5e1"}}>
@@ -235,20 +280,193 @@ function MD({text,color="#38bdf8"}){
 // ═══════════════════════════════════════════════════════════════════════════════
 // SLACK ALERTS HUB
 // ═══════════════════════════════════════════════════════════════════════════════
-const MOCK_ALERTS = [
-  {id:genAlertId("DET"),ruleId:"AP-CA",  ruleName:"C2 Beacon & Jitter",         severity:"CRITICAL",tactic:"Command & Control",mitre:"T1071,T1573",time:new Date(Date.now()-120000).toISOString(),srcIp:"185.220.101.47",dstIp:"10.4.2.88",account:"svc_telemetry",host:"WKSTN-047",iocs:[{t:"IP",v:"185.220.101.47"},{t:"Port",v:"443/tcp jitter 30-90s"}],irId:null,agentReport:null,reportLoading:false},
-  {id:genAlertId("DET"),ruleId:"RDP-03", ruleName:"Windows RDP Bruteforce",      severity:"CRITICAL",tactic:"Credential Access",mitre:"T1110.001",   time:new Date(Date.now()-480000).toISOString(),srcIp:"45.33.32.156",dstIp:"10.1.0.15",account:"Administrator",host:"DC-PROD-01",iocs:[{t:"IP",v:"45.33.32.156"},{t:"Account",v:"Administrator"}],irId:null,agentReport:null,reportLoading:false},
-  {id:genAlertId("DET"),ruleId:"HP-010", ruleName:"Cowrie SSH/Telnet Honeypot",  severity:"HIGH",    tactic:"Initial Access",   mitre:"T1110",        time:new Date(Date.now()-900000).toISOString(),srcIp:"198.54.117.197",dstIp:"10.0.0.250",account:"root",host:"HONEYPOT-01",iocs:[{t:"IP",v:"198.54.117.197"},{t:"Command",v:"wget http://185.x.x.x/payload.sh"}],irId:null,agentReport:null,reportLoading:false},
-  {id:genAlertId("DET"),ruleId:"AP-PE",  ruleName:"Privilege Escalation & Persist",severity:"CRITICAL",tactic:"Privilege Escalation",mitre:"T1068,T1547",time:new Date(Date.now()-1800000).toISOString(),srcIp:"10.2.1.44",dstIp:"10.2.1.1",account:"svc_backup_radiology",host:"RADSVR-01",iocs:[{t:"Account",v:"svc_backup_radiology"},{t:"Host",v:"ADCTRL-02"},{t:"TTP",v:"T1547.001 Registry Run Key"}],irId:"IR-20260504-083244",agentReport:null,reportLoading:false},
-  {id:genAlertId("DET"),ruleId:"EDG-03", ruleName:"Logging Disabled/Redirected",  severity:"CRITICAL",tactic:"Defense Evasion",  mitre:"T1562.002",   time:new Date(Date.now()-3600000).toISOString(),srcIp:"10.0.0.1",dstIp:"10.0.0.1",account:"admin",host:"FW-EDGE-01",iocs:[{t:"Host",v:"FW-EDGE-01"},{t:"Action",v:"syslog destination changed"}],irId:null,agentReport:null,reportLoading:false},
-];
+function normalizeApiAlert(a){return{...a,irId:a.irId||null,agentReport:null,reportLoading:false,reportPhase:null,isTest:false,iocs:Array.isArray(a.iocs)?a.iocs:[]}; }
 
 function timeAgo(iso){const s=Math.floor((Date.now()-new Date(iso))/1000);if(s<60)return`${s}s ago`;if(s<3600)return`${Math.floor(s/60)}m ago`;return`${Math.floor(s/3600)}h ago`;}
 
-function SlackAlertCard({alert,onRunAgent,onOpenFull}){
-  const s=SEV[alert.severity]||SEV.HIGH;
+// ─── INLINE AGENT CHAT — embedded investigation panel ─────────────────────────
+// Self-contained streaming chat that runs inside any card/row. Auto-triggers
+// investigation on mount using all real Wazuh observables when liveAlert is given.
+function InlineAgentChat({rule,liveAlert,customRules,gc}){
+  const[msgs,setMsgs]=useState([]);
+  const[inp,setInp]=useState("");
+  const[loading,setLoading]=useState(false);
+  const[streaming,setStreaming]=useState("");
+  const btm=useRef(null);
+  const started=useRef(false);
+  const color=gc||"#a855f7";
+
+  const cb=(customRules||[]).length?`\nCUSTOM RULES IN SCOPE:\n${customRules.map(r=>`- [${r.id}] ${r.name} | ${r.tactic} | ${r.mitre}${r.level?` | level:${r.level}`:""}`).join("\n")}`:"";
+
+  const SYS=liveAlert
+    ?`You are an autonomous SOC incident responder analyzing a LIVE Wazuh detection. Stack: Wazuh SIEM | Suricata | Zeek | YARA | Honeypots | IR playbooks: triage_collect.yml/containment_block_src.yml/ir_suricata_alert.yml/close_case.yml${cb}
+
+LIVE DETECTION:
+  Alert ID: ${liveAlert.id}
+  Rule: ${liveAlert.ruleName} (${liveAlert.ruleId}) — Level ${liveAlert.level||"?"} [${liveAlert.severity}]
+  Time: ${liveAlert.time}
+  Tactic: ${liveAlert.tactic} | MITRE: ${liveAlert.mitre}
+  Groups: ${(liveAlert.groups||[]).join(",")||"—"}
+  Decoder: ${liveAlert.decoder||"—"} | Location: ${liveAlert.location||"—"}
+
+ENDPOINT:
+  Host: ${liveAlert.host}
+  Agent: ${liveAlert.agentId||"—"}@${liveAlert.agentIp||"—"}
+  Account: ${liveAlert.account}
+
+NETWORK:
+  src_ip: ${liveAlert.srcIp}
+  dst_ip: ${liveAlert.dstIp}
+
+IOCs:
+${(liveAlert.iocs||[]).map(i=>`  [${i.t}] ${i.v}`).join("\n")||"  none extracted"}
+
+RAW LOG: ${liveAlert.fullLog||"(not available)"}
+
+Produce a full investigation:
+### 🔍 TRIAGE
+### ⏱️ TIMELINE
+### 🧠 ATTACK VECTOR
+### 🔗 CORRELATION
+### 🛑 CONTAINMENT
+### 📋 LOG PULL COMMANDS
+### 🔎 HUNT QUERIES
+### 📊 CASE REPORT`
+    :`You are an autonomous SOC agent investigating detection rule: ${rule?.id} — ${rule?.name}. Severity: ${rule?.severity} | Tactic: ${rule?.tactic} | MITRE: ${rule?.mitre}${rule?.wazuhRuleId?` | Wazuh rule ${rule?.wazuhRuleId} level ${rule?.level}`:""}${cb}
+Produce: ### 🔍 TRIAGE / ### 🧠 ATTACK VECTOR / ### 🛑 CONTAINMENT / ### 📋 LOG PULL COMMANDS / ### 📊 CASE REPORT`;
+
+  const initMsg=liveAlert
+    ?`LIVE ALERT — FULL INVESTIGATION:\n${formatAlertForAgent(liveAlert)}\n\nBegin investigation using all real observables above.`
+    :`RULE INVESTIGATION: ${rule?.id} — ${rule?.name}\n${rule?.severity} | ${rule?.tactic} | ${rule?.mitre}\nBegin investigation.`;
+
+  useEffect(()=>{if(started.current)return;started.current=true;send(initMsg);},[]);
+  useEffect(()=>{btm.current?.scrollIntoView({behavior:"smooth"});},[msgs,streaming]);
+
+  async function send(msg){
+    setLoading(true);setStreaming("");
+    const next=[...msgs,{role:"user",content:msg}];setMsgs(next);
+    let full="";
+    await callAgent("investigate",next,c=>{full=c;setStreaming(c);},{system:SYS});
+    setStreaming("");setMsgs([...next,{role:"assistant",content:full}]);setLoading(false);
+  }
+
   return(
-    <div style={{background:"#0a1117",border:`1px solid ${s.border}33`,borderRadius:10,overflow:"hidden",marginBottom:10}}>
+    <div style={{borderTop:`1px solid ${color}22`,marginTop:10,paddingTop:10}}>
+      <div style={{maxHeight:420,overflowY:"auto",display:"flex",flexDirection:"column",gap:8,marginBottom:8,paddingRight:4}}>
+        {msgs.map((m,i)=>(
+          <div key={i}>
+            {m.role==="user"&&i>0&&<div style={{textAlign:"right",marginBottom:4}}><span style={{background:"#0f2a3a",border:`1px solid ${color}33`,borderRadius:"8px 8px 2px 8px",padding:"4px 10px",color:"#cbd5e1",fontSize:"0.68rem",fontFamily:"monospace",display:"inline-block",maxWidth:"72%"}}>{m.content}</span></div>}
+            {m.role==="assistant"&&<div style={{background:"#060d1a",border:`1px solid ${color}22`,borderRadius:"2px 8px 8px 8px",padding:"10px 12px"}}><div style={{color,fontSize:"0.59rem",fontFamily:"monospace",marginBottom:5,letterSpacing:1}}>⚡ OPXDR AGENT · {ts()}</div><MD text={m.content} color={color}/></div>}
+          </div>
+        ))}
+        {loading&&!streaming&&<div style={{background:"#060d1a",border:`1px solid ${color}33`,borderRadius:"2px 8px 8px 8px",padding:"10px 12px"}}><div style={{color,fontSize:"0.59rem",fontFamily:"monospace",marginBottom:5,letterSpacing:1,animation:"pulse 1.5s infinite"}}>⚡ ANALYZING... (model warming up — may take 1-2 min)</div></div>}
+        {streaming&&<div style={{background:"#060d1a",border:`1px solid ${color}33`,borderRadius:"2px 8px 8px 8px",padding:"10px 12px"}}><div style={{color,fontSize:"0.59rem",fontFamily:"monospace",marginBottom:5,letterSpacing:1,animation:"pulse 1.5s infinite"}}>⚡ ANALYZING...</div><MD text={streaming} color={color}/><span style={{color,animation:"blink 1s infinite"}}>▋</span></div>}
+        <div ref={btm}/>
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        <input value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!loading&&inp.trim()&&(send(inp.trim()),setInp(""))} placeholder="follow-up: pull logs / hunt iocs / expand ioc / block ip / correlate / deploy ir..." disabled={loading} style={{flex:1,background:"#0a1628",border:`1px solid ${color}44`,borderRadius:6,color:"#e2e8f0",padding:"6px 10px",fontSize:"0.69rem",fontFamily:"'IBM Plex Mono',monospace",outline:"none"}} onFocus={e=>e.target.style.borderColor=color} onBlur={e=>e.target.style.borderColor=color+"44"}/>
+        <button onClick={()=>{if(inp.trim()&&!loading){send(inp.trim());setInp("");}}} disabled={loading||!inp.trim()} style={{background:loading?"#1e293b":color,color:"#020817",border:"none",borderRadius:6,padding:"6px 14px",fontWeight:700,fontSize:"0.7rem",cursor:loading?"not-allowed":"pointer",fontFamily:"monospace",whiteSpace:"nowrap"}}>{loading?"...":"SEND ↵"}</button>
+      </div>
+    </div>
+  );
+}
+
+function SlackAlertCard({alert,onRunAgent,onOpenFull,onInvestigate,customRules,onSaveDoc,settings}){
+  const s=SEV[alert.severity]||SEV.HIGH;
+  const [invLoading,setInvLoading]=useState(false);
+  const [invText,setInvText]=useState("");
+  const [invDone,setInvDone]=useState(false);
+  const [invInput,setInvInput]=useState("");
+  const [invFollowUpLoading,setInvFollowUpLoading]=useState(false);
+  const [invFollowUpText,setInvFollowUpText]=useState("");
+  const invAutoRan=useRef(false);
+  const gc="#38bdf8";
+  const QUICK=alert.severity==="CRITICAL"||alert.severity==="HIGH"
+    ?["pull logs","hunt iocs","expand ioc","block ip","correlate","deploy ir","export alert","close case"]
+    :["pull logs","anomaly hunt","attack chain","run containment","correlate","export alert","close case"];
+
+  useEffect(()=>{
+    if(invAutoRan.current)return;
+    if(!settings?.autoAi)return;
+    const sevOk=settings.autoMinSev==="CRITICAL"
+      ?alert.severity==="CRITICAL"
+      :(alert.severity==="CRITICAL"||alert.severity==="HIGH");
+    if(!sevOk)return;
+    invAutoRan.current=true;
+    runInvestigation();
+  },[]);
+
+  async function runInvestigation(){
+    setInvLoading(true);
+    setInvText("");
+    setInvDone(false);
+    const msg=`Investigate this security alert in full detail. Produce a comprehensive executive investigation report.\n\n${formatAlertForAgent(alert)}`;
+    const sys=`You are a senior SOC investigator. Analyze this alert and produce a comprehensive executive investigation report using EXACTLY this format:
+
+🔍 [ALERT ID] — Full Investigation Report
+---
+
+### 1. Alert Summary
+| Field | Value |
+|---|---|
+| Alert ID | ... |
+| Title | ... |
+| Severity | ... |
+| MITRE Tactic | ... |
+| Rule ID | ... |
+| Status | INVESTIGATED |
+| Host | ... |
+| Source IP | ... |
+| Decoder | ... |
+| Log Source | ... |
+
+### 2. Timeline of Events
+Chronologically ordered phases with source attribution. Use tables with Timestamp | Event | Status columns. Group into phases (🔴 Phase N — Title).
+
+### 3. Indicators of Compromise (IOCs)
+Split into Network IOCs and Host-Based IOCs tables. Include IPs, URLs, User-Agents, file paths, exploit methods.
+
+### 4. Kill Chain Mapping
+MITRE ATT&CK stages mapped to observed activity. Table with Stage | Technique | Observed.
+
+### 5. Risk Assessment
+Table with Factor | Assessment. Cover: exploitability, OGNL/expression eval success, service status, internal pivot risk, C2 communication, current sessions.
+
+### 6. Recommended Actions
+- ✅ Immediate (completed actions)
+- 🔴 Urgent (must-do now)
+- 🟡 Follow-up (should-do)
+
+### 7. Conclusion
+Confidence level (HIGH/MEDIUM/LOW), summary narrative of the attack with key findings.
+
+Be specific — use exact IPs, hostnames, timestamps, URLs, and commands from the alert data.`;
+    try{
+      await callAgent("investigate",[{role:"user",content:msg}],(full)=>{setInvText(full);},{system:sys});
+      setInvDone(true);
+    }catch(e){
+      setInvText(`[Investigation failed: ${e.message}]`);
+    }finally{
+      setInvLoading(false);
+    }
+  }
+
+  async function runFollowUp(text){
+    if(!text.trim()||invFollowUpLoading)return;
+    setInvFollowUpLoading(true);
+    setInvFollowUpText("");
+    const msgs=[{role:"user",content:text}];
+    try{
+      await callAgent("investigate",msgs,(full)=>{setInvFollowUpText(full);},{system:"You are a senior SOC investigator executing follow-up tasks on the alert."});
+    }catch(e){
+      setInvFollowUpText(`[Follow-up failed: ${e.message}]`);
+    }finally{
+      setInvFollowUpLoading(false);
+    }
+  }
+
+  return(
+    <div style={{background:"#0a1117",border:`1px solid ${s.border+"33"}`,borderRadius:10,overflow:"hidden",marginBottom:10}}>
       {/* Slack-style left accent */}
       <div style={{display:"flex"}}>
         <div style={{width:4,background:s.border,flexShrink:0}}/>
@@ -259,6 +477,7 @@ function SlackAlertCard({alert,onRunAgent,onOpenFull}){
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                 <span style={{color:"#e2e8f0",fontFamily:"'Oxanium',monospace",fontWeight:700,fontSize:"0.84rem"}}>🚨 {alert.ruleName}</span>
                 <SB l={alert.severity}/>
+                {alert.injected&&<span style={{background:"#38bdf820",border:"1px solid #38bdf855",color:"#38bdf8",padding:"1px 7px",borderRadius:3,fontSize:"0.62rem",fontFamily:"monospace",letterSpacing:1}}>INJECTED</span>}
               </div>
               <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                 <code style={{color:"#334155",fontSize:"0.65rem",fontFamily:"monospace"}}>{alert.id}</code>
@@ -269,20 +488,43 @@ function SlackAlertCard({alert,onRunAgent,onOpenFull}){
             <span style={{color:"#334155",fontSize:"0.68rem",fontFamily:"monospace",whiteSpace:"nowrap",marginLeft:8}}>{timeAgo(alert.time)}</span>
           </div>
 
-          {/* IOC grid */}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:6,marginBottom:10}}>
-            {[{k:"src_ip",v:alert.srcIp},{k:"dst_ip",v:alert.dstIp},{k:"account",v:alert.account},{k:"host",v:alert.host}].map(({k,v})=>(
-              <div key={k} style={{background:"#060d1a",border:"1px solid #1e293b",borderRadius:5,padding:"4px 8px"}}>
-                <div style={{color:"#334155",fontSize:"0.62rem",fontFamily:"monospace"}}>{k}</div>
-                <div style={{color:"#e2e8f0",fontSize:"0.72rem",fontFamily:"monospace",wordBreak:"break-all"}}>{v}</div>
-              </div>
-            ))}
+          {/* Field grid: host/agent + network fields */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(155px,1fr))",gap:5,marginBottom:8}}>
+            {[
+              {k:"host",v:alert.host},
+              {k:"agent_id",v:alert.agentId&&alert.agentId!=="—"?`${alert.agentId} @ ${alert.agentIp||""}`:null},
+              {k:"src_ip",v:alert.srcIp},
+              {k:"dst_ip",v:alert.dstIp},
+              {k:"account",v:alert.account},
+              {k:"location",v:alert.location},
+            ].filter(({v})=>v&&v!=="—"&&v!=="— @ ")
+              .map(({k,v})=>(
+                <div key={k} style={{background:"#060d1a",border:"1px solid #1e293b",borderRadius:5,padding:"4px 8px"}}>
+                  <div style={{color:"#475569",fontSize:"0.6rem",fontFamily:"monospace",letterSpacing:"0.05em"}}>{k}</div>
+                  <div style={{color:"#e2e8f0",fontSize:"0.72rem",fontFamily:"monospace",wordBreak:"break-all"}}>{v}</div>
+                </div>
+              ))}
           </div>
 
-          {/* IOCs */}
-          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
-            {alert.iocs.map((ioc,i)=><span key={i} style={{background:"#1a0a0033",border:"1px solid #fbbf2433",color:"#fbbf24",padding:"1px 8px",borderRadius:4,fontSize:"0.67rem",fontFamily:"monospace"}}>[{ioc.t}] {ioc.v}</span>)}
-          </div>
+          {/* IOC tags */}
+          {alert.iocs&&alert.iocs.length>0&&(
+            <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8,padding:"6px 8px",background:"#0d0208",border:"1px solid #fbbf2422",borderRadius:6}}>
+              <span style={{color:"#475569",fontSize:"0.6rem",fontFamily:"monospace",alignSelf:"center",marginRight:2}}>IOC</span>
+              {alert.iocs.map((ioc,i)=>(
+                <span key={i} style={{background:"#fbbf2412",border:"1px solid #fbbf2450",color:"#fcd34d",padding:"2px 9px",borderRadius:4,fontSize:"0.67rem",fontFamily:"monospace",letterSpacing:"0.02em"}}>
+                  [{ioc.t}] {ioc.v}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Raw Wazuh log line */}
+          {alert.fullLog&&(
+            <div style={{marginBottom:8,padding:"4px 8px",background:"#060d1a",border:"1px solid #1e293b33",borderRadius:5}}>
+              <div style={{color:"#475569",fontSize:"0.6rem",fontFamily:"monospace",marginBottom:2}}>raw_log</div>
+              <div style={{color:"#64748b",fontSize:"0.65rem",fontFamily:"monospace",wordBreak:"break-all",whiteSpace:"pre-wrap"}}>{alert.fullLog.slice(0,200)}{alert.fullLog.length>200?"…":""}</div>
+            </div>
+          )}
 
           {/* IR badge if deployed */}
           {alert.irId&&<div style={{display:"inline-flex",alignItems:"center",gap:6,background:"#22c55e15",border:"1px solid #22c55e33",borderRadius:5,padding:"3px 10px",marginBottom:10}}>
@@ -290,22 +532,79 @@ function SlackAlertCard({alert,onRunAgent,onOpenFull}){
           </div>}
 
           {/* Actions */}
-          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-            <button onClick={()=>onRunAgent(alert)} style={{background:"#38bdf820",border:"1px solid #38bdf855",color:"#38bdf8",borderRadius:6,padding:"5px 13px",fontSize:"0.71rem",fontWeight:700,cursor:"pointer",fontFamily:"monospace"}}>
-              {alert.reportLoading?"⟳ Analyzing...":"⚡ Run Agent Report"}
-            </button>
-            <button onClick={()=>onOpenFull(alert)} style={{background:"#0f172a",border:"1px solid #1e293b",color:"#64748b",borderRadius:6,padding:"5px 13px",fontSize:"0.71rem",cursor:"pointer",fontFamily:"monospace"}}>
-              🔍 Full Investigation
-            </button>
-          </div>
+          {!invLoading&&!invDone&&(
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <button onClick={()=>runInvestigation()} style={{background:"#22c55e20",border:"1px solid #22c55e55",color:"#22c55e",borderRadius:6,padding:"5px 13px",fontSize:"0.71rem",fontWeight:700,cursor:"pointer",fontFamily:"monospace"}}>
+                🔍 Run Investigation
+              </button>
+              <button onClick={()=>onRunAgent(alert)} style={{background:"#38bdf820",border:"1px solid #38bdf855",color:"#38bdf8",borderRadius:6,padding:"5px 13px",fontSize:"0.71rem",fontWeight:700,cursor:"pointer",fontFamily:"monospace"}}>
+                {alert.reportLoading
+                  ? alert.reportPhase==="log-analysis" ? "⟳ Phase 1: Log Analysis..."
+                  : alert.reportPhase==="report"        ? "⟳ Phase 2: Report Agent..."
+                  : "⟳ Analyzing..."
+                  : "⚡ Run Agent Report"}
+              </button>
+              <button onClick={()=>onInvestigate&&onInvestigate(alert)} style={{background:"#a855f720",border:"1px solid #a855f755",color:"#a855f7",borderRadius:6,padding:"5px 13px",fontSize:"0.71rem",fontWeight:700,cursor:"pointer",fontFamily:"monospace"}}>
+                🔬 Full Investigation
+              </button>
+            </div>
+          )}
 
-          {/* Agent report inline */}
+          {/* Streaming investigation report */}
+          {(invLoading||invText)&&(
+            <div style={{marginTop:12,background:"#060d1a",border:`1px solid ${invDone?"#22c55e44":"#38bdf833"}`,borderRadius:8,padding:"12px 14px"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                <div style={{color:invDone?"#22c55e":"#38bdf8",fontSize:"0.65rem",fontFamily:"monospace"}}>
+                  {invLoading ? "⚡ EXECUTIVE INVESTIGATION REPORT · ANALYZING..." : "✓ EXECUTIVE INVESTIGATION REPORT"}
+                </div>
+                {invDone&&onSaveDoc&&<button onClick={()=>onSaveDoc({type:"investigation",title:`Investigation: ${alert.ruleName}`,alert,report:invText})} style={{background:"#22c55e20",border:"1px solid #22c55e55",color:"#22c55e",borderRadius:5,padding:"3px 10px",fontSize:"0.64rem",fontWeight:700,cursor:"pointer",fontFamily:"monospace"}}>💾 Save</button>}
+              </div>
+              <MD text={invText+(invLoading?"\n\n`⚡ generating...`":"")} color="#38bdf8"/>
+            </div>
+          )}
+
+          {/* Post-completion toolbar — Save / Further Triage / Recommend IR / Save & Exit */}
+          {invDone&&(
+            <div style={{marginTop:12,padding:"6px 0",borderTop:"1px solid #22c55e33"}}>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:8}}>
+                <span style={{color:"#22c55e",fontSize:"0.63rem",fontFamily:"monospace",letterSpacing:1,display:"flex",alignItems:"center",gap:5}}>
+                  <span style={{color:"#22c55e",animation:"blink 2s step-end infinite"}}>✓</span> ANALYSIS COMPLETE — choose next action or continue chatting
+                </span>
+                <div style={{flex:1}}/>
+                {onSaveDoc&&<button onClick={()=>onSaveDoc({type:"investigation",title:`Investigation: ${alert.ruleName}`,alert,report:invText})} style={{background:"#22c55e20",border:"1px solid #22c55e55",color:"#22c55e",borderRadius:5,padding:"5px 13px",fontSize:"0.67rem",fontWeight:700,cursor:"pointer",fontFamily:"monospace"}}>💾 Save</button>}
+                <button onClick={()=>{runFollowUp("Based on the investigation above, provide: (1) Top 3 immediate threat hunting queries using Wazuh/KQL/Sigma targeting this specific host, source IP, and rule groups; (2) IOC pivot and expansion steps for each confirmed IOC; (3) Anomaly detection queries for the agent; (4) Recommended next triage actions in priority order.")}} style={{background:"#38bdf820",border:"1px solid #38bdf855",color:"#38bdf8",borderRadius:5,padding:"5px 13px",fontSize:"0.67rem",fontWeight:700,cursor:"pointer",fontFamily:"monospace"}}>🔍 Further Triage</button>
+                <button onClick={()=>{runFollowUp("Generate a full Incident Response plan for this detection. Provide: ### 🚨 IR CLASSIFICATION — severity, IR case priority, and notification matrix; ### 📋 CONTAINMENT STEPS — exact shell/Ansible commands to block/isolate NOW; ### 🔍 EVIDENCE COLLECTION — forensic commands for memory, disk, network artifacts; ### 🧹 ERADICATION — how to fully remove the threat; ### 🔄 RECOVERY — steps to safely restore; ### 📝 IR PLAYBOOK REFERENCE — which playbook template to use and how to instantiate it. Be specific with commands, hostnames, and IPs from the alert.")}} style={{background:"#f9731620",border:"1px solid #f9731655",color:"#f97316",borderRadius:5,padding:"5px 13px",fontSize:"0.67rem",fontWeight:700,cursor:"pointer",fontFamily:"monospace"}}>🚨 Recommend IR</button>
+                {onSaveDoc&&<button onClick={()=>{onSaveDoc({type:"investigation",title:`Investigation: ${alert.ruleName}`,alert,report:invText});setInvDone(false);setInvText("");setInvInput("");setInvFollowUpText("");}} style={{background:"#1e293b",border:"1px solid #334155",color:"#64748b",borderRadius:5,padding:"5px 13px",fontSize:"0.67rem",fontWeight:700,cursor:"pointer",fontFamily:"monospace"}}>💾 Save & Exit</button>}
+              </div>
+              {/* Quick preset buttons */}
+              <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
+                {QUICK.map(t=><button key={t} onClick={()=>setInvInput(t)} style={{background:"#0f172a",border:"1px solid #1e293b",color:"#64748b",borderRadius:5,padding:"3px 9px",fontSize:"0.67rem",cursor:"pointer",fontFamily:"monospace"}} onMouseEnter={e=>{e.target.style.borderColor=gc;e.target.style.color=gc;}} onMouseLeave={e=>{e.target.style.borderColor="#1e293b";e.target.style.color="#64748b";}}>{t}</button>)}
+              </div>
+              {/* Follow-up input */}
+              <div style={{display:"flex",gap:7}}>
+                <input value={invInput} onChange={e=>setInvInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!invFollowUpLoading&&invInput.trim()&&(runFollowUp(invInput.trim()),setInvInput(""))} placeholder="follow-up: pull logs / hunt iocs / block ip..." disabled={invFollowUpLoading} style={{flex:1,background:"#0a1628",border:"1px solid #1e293b",borderRadius:7,color:"#e2e8f0",padding:"6px 10px",fontSize:"0.7rem",fontFamily:"'IBM Plex Mono',monospace",outline:"none"}} onFocus={e=>e.target.style.borderColor=gc} onBlur={e=>e.target.style.borderColor="#1e293b"}/>
+                <button onClick={()=>{if(invInput.trim()&&!invFollowUpLoading){runFollowUp(invInput.trim());setInvInput("");}}} disabled={invFollowUpLoading||!invInput.trim()} style={{background:invFollowUpLoading?"#1e293b":gc,color:invFollowUpLoading?"#475569":"#020817",border:"none",borderRadius:7,padding:"6px 12px",fontWeight:700,fontSize:"0.7rem",cursor:invFollowUpLoading?"not-allowed":"pointer",fontFamily:"monospace"}}>{invFollowUpLoading?"...":"SEND"}</button>
+              </div>
+              {/* Follow-up streaming response */}
+              {invFollowUpText&&(
+                <div style={{marginTop:8,background:"#0a1628",border:"1px solid #1e293b",borderRadius:6,padding:"8px 10px"}}>
+                  <MD text={invFollowUpText+(invFollowUpLoading?"\n\n`⚡ generating...`":"")} color="#94a3b8"/>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Agent report inline (existing) */}
           {alert.agentReport&&(
             <div style={{marginTop:12,background:"#060d1a",border:"1px solid #38bdf833",borderRadius:8,padding:"12px 14px"}}>
-              <div style={{color:"#38bdf8",fontSize:"0.65rem",fontFamily:"monospace",marginBottom:8}}>⚡ AGENT REPORT — {alert.agentReport.at}</div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                <div style={{color:"#38bdf8",fontSize:"0.65rem",fontFamily:"monospace"}}>⚡ AGENT REPORT · {alert.agentReport.at}</div>
+                {onSaveDoc&&<button onClick={()=>onSaveDoc({type:"report",title:`Report: ${alert.ruleName}`,alert,report:alert.agentReport.text})} style={{background:"#22c55e20",border:"1px solid #22c55e55",color:"#22c55e",borderRadius:5,padding:"3px 10px",fontSize:"0.64rem",fontWeight:700,cursor:"pointer",fontFamily:"monospace"}}>💾 Save Report</button>}
+              </div>
               <MD text={alert.agentReport.text} color="#38bdf8"/>
             </div>
           )}
+
         </div>
       </div>
     </div>
@@ -314,25 +613,79 @@ function SlackAlertCard({alert,onRunAgent,onOpenFull}){
 
 // Shared system prompt + alert formatter — used by SlackHub manual run AND
 // the App-level auto-analyzer triggered on SSE arrival.
-const SLACK_AGENT_SYS=(alert)=>`You are a SOC agent. An alert just fired on the Wazuh SIEM. Produce a concise structured report covering:
-### 📊 IOC INVENTORY
-List and classify every IOC from the alert data. Tag each: CONFIRMED, SUSPECTED, or NOISE.
-### 🧠 ATTACK ASSESSMENT
-What is this? Is IR playbook needed? What MITRE stage is this? What happens next if untreated?
-### 🚨 IR PLAYBOOK STATUS
-${alert.irId?`IR case ${alert.irId} IS deployed. State what it covers, what it likely did (containment/block steps), and what gaps remain.`:"No IR playbook deployed yet. Recommend: should one be deployed? Which playbook template?"}
-### ⚡ REQUIRED ACTIONS
-Bullet list: what does the analyst need to do RIGHT NOW? Be specific — commands, account names, IPs.
-### ✅ FURTHER ACTIONS NEEDED?
-Yes/No with 1-sentence justification. If yes, state exactly what.
+const SLACK_AGENT_SYS=(alert)=>`You are a SOC agent. An alert just fired on the Wazuh SIEM. Produce a structured investigation report using EXACTLY this format:
+
+🔍 [ALERT ID] — Full Investigation Report
+---
+
+### 1. Alert Summary
+| Field | Value |
+|---|---|
+| Alert ID | ${alert.id} |
+| Title | ${alert.ruleName} |
+| Severity | ${alert.severity} |
+| MITRE Tactic | ${alert.tactic} (${alert.mitre}) |
+| Rule ID | ${alert.ruleId} |
+| Status | INVESTIGATED |
+| Host | ${alert.host} |
+| Source IP | ${alert.srcIp} |
+| Decoder | ${alert.decoder||"—"} |
+| Log Source | ${alert.location||"—"} |
+
+### 2. Timeline of Events
+Chronological phases. Tables with Timestamp | Event | Status columns. Group into phases.
+
+### 3. Indicators of Compromise (IOCs)
+Network IOCs table (IPs, URLs, User-Agents) + Host-Based IOCs table (paths, methods). Tag each: CONFIRMED/SUSPECTED/NOISE.
+
+### 4. Kill Chain Mapping
+MITRE ATT&CK stage | Technique | Observed activity.
+
+### 5. Risk Assessment
+Exploitability, service status, internal pivot risk, C2 comms, current sessions.
+
+### 6. Recommended Actions
+✅ Immediate completed actions, 🔴 Urgent actions with specific commands/IPs, 🟡 Follow-up.
+
+### 7. Conclusion
+Confidence level and summary narrative.
+
+${alert.irId?`IR case ${alert.irId} IS deployed. State what it covers and gaps.`:"No IR playbook deployed yet."}
 
 End with: ---\n**🤖 Reply with:** \`deploy IR\` \`pull logs\` \`block ip\` \`correlate\` or describe action.`;
 
-const formatAlertForAgent=(alert)=>`ALERT FIRED:\nID: ${alert.id}\nRule: ${alert.ruleName} (${alert.ruleId})\nSeverity: ${alert.severity}\nTactic: ${alert.tactic} | ${alert.mitre}\nSource IP: ${alert.srcIp}\nDest IP: ${alert.dstIp}\nAccount: ${alert.account}\nHost: ${alert.host}\nIOCs: ${(alert.iocs||[]).map(i=>`[${i.t}] ${i.v}`).join(", ")}\n${alert.irId?`IR Deployed: ${alert.irId}`:"No IR deployed."}`;
+const formatAlertForAgent=(alert)=>{
+  const iocStr=(alert.iocs||[]).map(i=>`[${i.t}] ${i.v}`).join(", ")||"none extracted";
+  const lines=[
+    `ALERT FIRED:`,
+    `ID: ${alert.id}`,
+    `Rule: ${alert.ruleName} (${alert.ruleId})`,
+    `Severity: ${alert.severity} (level ${alert.level||"?"})`,
+    `Tactic: ${alert.tactic} | MITRE: ${alert.mitre}`,
+    ``,
+    `ENDPOINT:`,
+    `  Host:    ${alert.host}`,
+    `  Agent:   ${alert.agentId||"—"} @ ${alert.agentIp||"—"}`,
+    `  Account: ${alert.account}`,
+    ``,
+    `NETWORK:`,
+    `  src_ip:  ${alert.srcIp}`,
+    `  dst_ip:  ${alert.dstIp}`,
+    ``,
+    `IOCs: ${iocStr}`,
+    ``,
+    `DETECTION:`,
+    `  Decoder:  ${alert.decoder||"—"}`,
+    `  Location: ${alert.location||"—"}`,
+  ];
+  if(alert.fullLog)lines.push(`  Raw log: ${alert.fullLog}`);
+  if(alert.irId)lines.push(``,`IR Deployed: ${alert.irId}`);
+  return lines.join("\n");
+};
 
 // Generate agent report + (optionally) push to Slack via backend webhook.
 async function generateAgentReport(alert,{slackNotify=false}={}){
-  const report=await claude(SLACK_AGENT_SYS(alert),[{role:"user",content:formatAlertForAgent(alert)}],()=>{});
+  const report=await callAgent("slackReport",[{role:"user",content:formatAlertForAgent(alert)}],()=>{},{system:SLACK_AGENT_SYS(alert)});
   if(slackNotify){
     try{
       await fetch("/api/slack/notify",{
@@ -345,14 +698,27 @@ async function generateAgentReport(alert,{slackNotify=false}={}){
   return report;
 }
 
-function SlackHub({alerts,setAlerts,onOpenFull,settings,setSettings}){
+function SlackHub({alerts,setAlerts,onOpenFull,onInvestigate,settings,setSettings,customRules,onSaveDoc}){
   const critCount=alerts.filter(a=>a.severity==="CRITICAL").length;
+  const highCount=alerts.filter(a=>a.severity==="HIGH").length;
+  const medCount=alerts.filter(a=>a.severity==="MEDIUM").length;
   const withIR=alerts.filter(a=>a.irId).length;
 
   async function runAgentReport(alert){
-    setAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,reportLoading:true}:a));
-    const report=await generateAgentReport(alert,{slackNotify:settings.slackNotify&&settings.slackEnabled});
-    setAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,reportLoading:false,agentReport:{text:report,at:ts()}}:a));
+    // Phase 1 — Log Analysis (Llama 3.1 8B): normalize IOCs, classify event
+    setAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,reportLoading:true,reportPhase:"log-analysis"}:a));
+    let logCtx="";
+    try{
+      logCtx=await callAgent("logAnalysis",[{role:"user",content:`Analyze and normalize this security alert:\n${formatAlertForAgent(alert)}\n\nTasks:\n1. Classify each IOC: CONFIRMED/SUSPECTED/NOISE\n2. Classify event: BENIGN/SUSPICIOUS/MALICIOUS\n3. Identify MITRE phase and attack pattern\n4. Output a 3-sentence structured summary for the report agent.`}],()=>{},{system:"You are a SOC log analysis pre-processor (Llama 3.1 8B). Parse alert metadata, normalize IOC fields, classify each IOC and the overall event. Produce a concise 3-sentence summary: (1) event classification and confidence, (2) IOC classification, (3) recommended analyst action."});
+    }catch(e){console.warn("[logAnalysis phase]",e.message);}
+    // Phase 2 — Slack Report (Llama 3.1 70B): full structured report
+    setAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,reportPhase:"report"}:a));
+    const enriched=logCtx?`LOG ANALYSIS PRE-PROCESSOR (Llama 8B):\n${logCtx}\n\n---\n${formatAlertForAgent(alert)}`:formatAlertForAgent(alert);
+    const report=await callAgent("slackReport",[{role:"user",content:enriched}],()=>{},{system:SLACK_AGENT_SYS(alert)});
+    setAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,reportLoading:false,reportPhase:null,agentReport:{text:report,logCtx,at:ts()}}:a));
+    if(settings.slackNotify&&settings.slackEnabled){
+      try{await fetch("/api/slack/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({alert,report})});}catch{}
+    }
   }
 
   const Toggle=({on,onClick,label,disabled,disabledReason})=>(
@@ -369,10 +735,10 @@ function SlackHub({alerts,setAlerts,onOpenFull,settings,setSettings}){
       {/* Stats bar */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:16}}>
         {[
-          {label:"TOTAL ALERTS",  val:alerts.length,       color:"#e2e8f0"},
-          {label:"CRITICAL",      val:critCount,           color:"#ff6060"},
-          {label:"IR DEPLOYED",   val:withIR,              color:"#22c55e"},
-          {label:"PENDING REVIEW",val:alerts.filter(a=>!a.agentReport).length,color:"#fbbf24"},
+          {label:"TOTAL ALERTS",val:alerts.length,  color:"#e2e8f0"},
+          {label:"MEDIUM",      val:medCount,       color:"#fbbf24"},
+          {label:"HIGH",        val:highCount,      color:"#f97316"},
+          {label:"CRITICAL",    val:critCount,      color:"#ff6060"},
         ].map(({label,val,color})=>(
           <div key={label} style={{background:"#060d1a",border:"1px solid #1e293b",borderRadius:8,padding:"10px 14px"}}>
             <div style={{color:"#334155",fontSize:"0.62rem",fontFamily:"monospace",letterSpacing:1}}>{label}</div>
@@ -409,9 +775,10 @@ function SlackHub({alerts,setAlerts,onOpenFull,settings,setSettings}){
       {/* Alert feed */}
       <div style={{marginBottom:8,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <span style={{color:"#334155",fontSize:"0.67rem",fontFamily:"monospace",letterSpacing:1}}>LIVE ALERT FEED — {settings.slackChannel||"#soc-alerts"}</span>
+        <span style={{background:"#f9731620",border:"1px solid #f9731644",color:"#f97316",padding:"1px 8px",borderRadius:3,fontSize:"0.61rem",fontFamily:"monospace",letterSpacing:1}}>HIGH+ ONLY</span>
         <span style={{color:"#22c55e",fontSize:"0.65rem",fontFamily:"monospace",animation:"pulse 2s infinite"}}>● CONNECTED</span>
       </div>
-      {alerts.map(a=><SlackAlertCard key={a.id} alert={a} onRunAgent={runAgentReport} onOpenFull={onOpenFull}/>)}
+      {alerts.map(a=><SlackAlertCard key={a.id} alert={a} onRunAgent={runAgentReport} onOpenFull={onOpenFull} onInvestigate={onInvestigate} customRules={customRules} onSaveDoc={onSaveDoc} settings={settings}/>)}
     </div>
   );
 }
@@ -419,49 +786,237 @@ function SlackHub({alerts,setAlerts,onOpenFull,settings,setSettings}){
 // ═══════════════════════════════════════════════════════════════════════════════
 // AGENT CHAT
 // ═══════════════════════════════════════════════════════════════════════════════
-function AgentChat({rule,customRules,onBack}){
+
+// Format Wazuh telemetry block for injection into the agent system prompt
+function fmtTelemetry(tel){
+  if(!tel)return"";
+  const row=a=>`  [${(a.severity||"?").padEnd(8)}] ${(a.time||"").slice(0,19)} host=${a.host||"—"} src=${a.srcIp||"—"} rule=${(a.ruleName||"").slice(0,60)}`;
+  const s=tel.stats||{};
+  const lines=[`\nWAZUH TELEMETRY — LAST ${tel.timeframe_hours||48}H (as of ${(tel.queried_at||"").slice(0,19)}):`,
+    `  host_events=${s.host_event_count||0} | ip_events=${s.ip_event_count||0} | rule_activations=${s.rule_activation_count||0}`,
+    `  rule spread: ${s.rule_unique_hosts||0} host(s), ${s.rule_unique_src_ips||0} unique src IP(s)`,
+    `  host severity: ${JSON.stringify(s.host_severity_breakdown||{})}`,
+  ];
+  if(tel.host_alerts?.length)lines.push(`\nHOST TIMELINE (${tel.host_alerts.length} events):`,
+    ...tel.host_alerts.slice(0,15).map(row));
+  if(tel.ip_alerts?.length)lines.push(`\nSOURCE IP HISTORY (${tel.ip_alerts.length} events):`,
+    ...tel.ip_alerts.slice(0,10).map(row));
+  if(tel.rule_alerts?.length)lines.push(`\nRULE FREQUENCY (${tel.rule_alerts.length} recent activations):`,
+    ...tel.rule_alerts.slice(0,10).map(row));
+  return lines.join("\n");
+}
+
+function AgentChat({rule,liveAlert,customRules,onBack,onSaveDoc}){
   const[messages,setMessages]=useState([]);const[input,setInput]=useState("");const[loading,setLoading]=useState(false);const[streaming,setStreaming]=useState("");
+  const[extraCtx,setExtraCtx]=useState(null);
+  const[telemetry,setTelemetry]=useState(null);
   const btm=useRef(null);
+  const started=useRef(false);
   const allG=Object.values(STATIC_REG);
-  const gc=allG.find(g=>g.rules.find(r=>r.id===rule.id))?.color||(rule.isCustom?"#22c55e":"#38bdf8");
-  const cb=customRules.length?`\nCUSTOM RULES:\n${customRules.map(r=>`- [${r.id}] ${r.name} | ${r.tactic} | ${r.mitre}`).join("\n")}` : "";
-  const SYS=`You are an autonomous SOC agent on Wazuh SIEM. Stack: Cowrie/Dionaea honeypots | APTPACK IA/EXEC/PE/DISC/CA/STAGE | APT31 Sigma | iFrag-DHV RDP | Edge | Suricata+Zeek | YARA | IR playbooks: triage_collect.yml / containment_block_src.yml / ir_suricata_alert.yml / close_case.yml${cb}
-TRIGGERED: ${rule.id} | ${rule.name} | ${rule.severity} | ${rule.tactic} | ${rule.mitre}${rule.wazuhRuleId?` | Wazuh ${rule.wazuhRuleId} level ${rule.level}`:""}${rule.playbook?`\nLINKED PLAYBOOK: ${rule.playbook.irId}`:""}
-ALERT FORMAT: ${genAlertId(rule.id)} ${rule.severity} | rule: ${rule.name} | file: ${rule.file}
-Respond: ### 🔍 TRIAGE / ### ⏱️ TIMELINE / ### 🧠 ATTACK VECTOR / ### 🔗 CORRELATION / ### 🛑 CONTAINMENT / ### 📋 LOG PULL / ### 🔎 ANOMALY QUERIES / ### 📊 CASE REPORT
-End: ---\n**🤖 AGENT READY:**\n> \`pull logs\` \`anomaly hunt\` \`attack chain\` \`run containment\` \`correlate\` \`export alert\` \`close case\``;
-  useEffect(()=>{run(`ALERT: ${rule.id} — ${rule.name}\n${rule.severity} | ${rule.tactic} | ${rule.mitre}\nBegin investigation.`);},[]);
-  useEffect(()=>{btm.current?.scrollIntoView({behavior:"smooth"});},[messages,streaming]);
-  async function run(msg){
-    setLoading(true);setStreaming("");const next=[...messages,{role:"user",content:msg}];setMessages(next);
-    let full="";await claude(SYS,next,c=>{full=c;setStreaming(c);});
-    setStreaming("");setMessages([...next,{role:"assistant",content:full}]);setLoading(false);
+  const gc=allG.find(g=>g.rules.find(r=>r.id===rule?.id))?.color||(rule?.isCustom?"#22c55e":liveAlert?"#a855f7":"#38bdf8");
+  const cb=customRules.length?`\nCUSTOM RULES IN SCOPE:\n${customRules.map(r=>`- [${r.id}] ${r.name} | ${r.tactic} | ${r.mitre} | Level:${r.level||"?"}`).join("\n")}` : "";
+
+  function buildSYS(ctxAlerts,tel){
+    if(liveAlert) return(
+`You are an autonomous SOC incident responder analyzing a LIVE Wazuh SIEM detection. Stack: Cowrie/Dionaea honeypots | APTPACK IA/EXEC/PE/DISC/CA/STAGE | APT31 Sigma | iFrag-DHV RDP | Edge | Suricata+Zeek | YARA | IR playbooks: triage_collect.yml / containment_block_src.yml / ir_suricata_alert.yml / close_case.yml${cb}
+
+LIVE WAZUH DETECTION:
+  Alert ID:  ${liveAlert.id}
+  Rule:      ${liveAlert.ruleName} (${liveAlert.ruleId}) — Level ${liveAlert.level||"?"} [${liveAlert.severity}]
+  Timestamp: ${liveAlert.time}
+  Tactic:    ${liveAlert.tactic} | MITRE: ${liveAlert.mitre}
+  Groups:    ${(liveAlert.groups||[]).join(", ")||"—"}
+  Decoder:   ${liveAlert.decoder||"—"}
+  Location:  ${liveAlert.location||"—"}
+
+ENDPOINT:
+  Host:      ${liveAlert.host}
+  Agent ID:  ${liveAlert.agentId||"—"}
+  Agent IP:  ${liveAlert.agentIp||"—"}
+  Account:   ${liveAlert.account}
+
+NETWORK:
+  src_ip:    ${liveAlert.srcIp}
+  dst_ip:    ${liveAlert.dstIp}
+
+IOCs:
+${(liveAlert.iocs||[]).map(i=>`  [${i.t}] ${i.v}`).join("\n")||"  none extracted"}
+
+RAW LOG:
+  ${liveAlert.fullLog||"(not available)"}
+
+Produce a FULL investigation report using EXACTLY this 7-section format:
+
+1. Alert Summary — table with all metadata above
+2. Timeline of Events — chronological phases with timestamps
+3. Indicators of Compromise — Network IOCs table + Host-Based IOCs table
+4. Kill Chain Mapping — MITRE ATT&CK stages mapped to observed activity
+5. Risk Assessment — exploitability, success indicators, pivot risk, C2
+6. Recommended Actions — ✅ completed / 🔴 urgent / 🟡 follow-up
+7. Conclusion — confidence level and summary
+
+${fmtTelemetry(tel)}
+---
+**🤖 AGENT READY:**
+> \`pull logs\` \`hunt iocs\` \`expand ioc\` \`block ip\` \`correlate\` \`deploy ir\` \`export\` \`close case\``
+    );
+    const latest=ctxAlerts?.[0];
+    return(
+`You are an autonomous SOC agent on Wazuh SIEM. Stack: Cowrie/Dionaea honeypots | APTPACK IA/EXEC/PE/DISC/CA/STAGE | APT31 Sigma | iFrag-DHV RDP | Edge | Suricata+Zeek | YARA | IR playbooks: triage_collect.yml / containment_block_src.yml / ir_suricata_alert.yml / close_case.yml${cb}
+
+DETECTION RULE:
+  ID:       ${rule?.id}
+  Name:     ${rule?.name}
+  Severity: ${rule?.severity} | Tactic: ${rule?.tactic} | MITRE: ${rule?.mitre}${rule?.wazuhRuleId?`\n  Wazuh Rule ID: ${rule.wazuhRuleId} | Level: ${rule.level||"?"}`:""} ${rule?.playbook?`\n  Linked Playbook: ${rule.playbook.irId}`:""}
+${latest?`
+MOST RECENT LIVE DETECTION (Wazuh pipeline):
+  Alert ID:  ${latest.id}
+  Timestamp: ${latest.time}
+  Host:      ${latest.host}
+  Agent ID:  ${latest.agentId||"—"}
+  Agent IP:  ${latest.agentIp||"—"}
+  Account:   ${latest.account}
+  src_ip:    ${latest.srcIp}
+  dst_ip:    ${latest.dstIp}
+  Groups:    ${(latest.groups||[]).join(", ")||"—"}
+  Decoder:   ${latest.decoder||"—"}
+  Location:  ${latest.location||"—"}
+  IOCs:
+${(latest.iocs||[]).map(i=>`    [${i.t}] ${i.v}`).join("\n")||"    none extracted"}
+  RAW LOG:
+    ${latest.fullLog||"(not available)"}
+${ctxAlerts.length>1?`\nADDITIONAL RECENT DETECTIONS (${ctxAlerts.length-1}):\n${ctxAlerts.slice(1).map(a=>`  [${a.severity}] ${a.time} host=${a.host} src=${a.srcIp} account=${a.account} groups=${(a.groups||[]).join(",")||"—"}`).join("\n")}`:""}`:"\nNO RECENT LIVE DETECTIONS found for this rule in the Wazuh pipeline."}
+
+Produce a FULL investigation report using EXACTLY this 7-section format:
+
+1. Alert Summary — table with all detection metadata
+2. Timeline of Events — chronological phases with timestamps (include any live detections found)
+3. Indicators of Compromise — Network IOCs table + Host-Based IOCs table
+4. Kill Chain Mapping — MITRE ATT&CK stages mapped to observed activity
+5. Risk Assessment — exploitability, success indicators, pivot risk, C2
+6. Recommended Actions — ✅ completed / 🔴 urgent / 🟡 follow-up
+7. Conclusion — confidence level and summary
+
+${fmtTelemetry(tel)}
+---
+**🤖 AGENT READY:**
+> \`pull logs\` \`anomaly hunt\` \`attack chain\` \`run containment\` \`correlate\` \`export alert\` \`close case\``
+    );
   }
-  const QUICK=["pull logs","anomaly hunt","attack chain","run containment","correlate","export alert","close case"];
+
+  function buildInitMsg(ctxAlerts){
+    if(liveAlert) return `LIVE ALERT — FULL INVESTIGATION REQUESTED:\n${formatAlertForAgent(liveAlert)}\n\nBegin full investigation using all real Wazuh observables above.`;
+    if(ctxAlerts?.length) return `DETECTION RULE INVESTIGATION: ${rule?.id} — ${rule?.name}\n${rule?.severity} | ${rule?.tactic} | ${rule?.mitre}\n\nMOST RECENT LIVE DETECTION FROM WAZUH PIPELINE:\n${formatAlertForAgent(ctxAlerts[0])}\n\nBegin full investigation. Use the exact host, agent ID, source IP, groups, and raw log above to hunt this specific detection.`;
+    return `DETECTION RULE INVESTIGATION: ${rule?.id} — ${rule?.name}\n${rule?.severity} | ${rule?.tactic} | ${rule?.mitre}\nNo recent live detections found in the pipeline for this rule. Provide investigation guidance, detection logic review, and hunt queries that can be run proactively.`;
+  }
+
+  // Fetch real Wazuh detections + full telemetry, then auto-trigger investigation
+  useEffect(()=>{
+    if(started.current)return;
+    started.current=true;
+    const ruleId=(rule?.wazuhRuleId||(rule?.id||"").replace(/^WAZ-/,"")).replace(/^CUSTOM-/,"");
+    // Build telemetry query params from whatever observables we have
+    const telQ=liveAlert
+      ?`?host=${encodeURIComponent(liveAlert.host||"")}&src_ip=${encodeURIComponent(liveAlert.srcIp||"")}&agent_id=${encodeURIComponent(liveAlert.agentId||"")}&rule_id=${encodeURIComponent((liveAlert.ruleId||"").replace(/^WAZ-/,""))}`
+      :`?rule_id=${encodeURIComponent(ruleId)}`;
+    Promise.all([
+      ruleId&&!liveAlert
+        ?fetch(`/api/alerts/investigate?rule_id=${encodeURIComponent(ruleId)}&limit=5`).then(r=>r.json()).catch(()=>({alerts:[]}))
+        :Promise.resolve({alerts:[]}),
+      fetch(`/api/investigate/full${telQ}`).then(r=>r.json()).catch(()=>({telemetry:null})),
+    ]).then(([alertsData,telData])=>{
+      const alerts=(!liveAlert&&(alertsData.alerts||[]).length)?alertsData.alerts:null;
+      const tel=telData?.telemetry||null;
+      if(alerts)setExtraCtx(alerts);
+      if(tel)setTelemetry(tel);
+      runWithSys(buildInitMsg(alerts),buildSYS(alerts,tel));
+    }).catch(()=>runWithSys(buildInitMsg(null),buildSYS(null,null)));
+  },[]);
+
+  useEffect(()=>{btm.current?.scrollIntoView({behavior:"smooth"});},[messages,streaming]);
+
+  async function runWithSys(msg,sys){
+    setLoading(true);setStreaming("");
+    const next=[...messages,{role:"user",content:msg}];setMessages(next);
+    let full="";
+    await callAgent("investigate",next,c=>{full=c;setStreaming(c);},{system:sys});
+    setStreaming("");
+    setMessages([...next,{role:"assistant",content:full,at:ts()}]);
+    setLoading(false);
+  }
+
+  async function run(msg){
+    await runWithSys(msg,buildSYS(extraCtx,telemetry));
+  }
+
+  const QUICK=liveAlert
+    ? ["pull logs","hunt iocs","expand ioc","block ip","correlate","deploy ir","export alert","close case"]
+    : ["pull logs","anomaly hunt","attack chain","run containment","correlate","export alert","close case"];
+
+  const headerTitle = liveAlert ? liveAlert.ruleName : (rule?.name||"Investigation");
+  const headerSev = liveAlert ? liveAlert.severity : rule?.severity;
+  const headerTactic = liveAlert ? liveAlert.tactic : rule?.tactic;
+
   return(
     <div style={{display:"flex",flexDirection:"column",height:"100vh",background:"#020817"}}>
       <style>{`@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}`}</style>
       <div style={{background:"#0a1628",borderBottom:`1px solid ${gc}33`,padding:"10px 18px",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
         <button onClick={onBack} style={{background:"none",border:"1px solid #1e293b",color:"#64748b",borderRadius:6,padding:"5px 11px",cursor:"pointer",fontSize:"0.72rem",fontFamily:"monospace"}}>← BACK</button>
+        {liveAlert&&<span style={{background:"#a855f720",border:"1px solid #a855f755",color:"#a855f7",padding:"2px 10px",borderRadius:4,fontSize:"0.67rem",fontFamily:"monospace",fontWeight:700,letterSpacing:1}}>LIVE DETECTION</span>}
+        {!liveAlert&&extraCtx&&<span style={{background:"#22c55e15",border:"1px solid #22c55e44",color:"#22c55e",padding:"2px 10px",borderRadius:4,fontSize:"0.67rem",fontFamily:"monospace",fontWeight:700,letterSpacing:1}}>LIVE DATA · {extraCtx.length} DETECTIONS</span>}
         <div style={{width:3,height:28,background:gc,borderRadius:2}}/>
-        <div style={{flex:1}}><div style={{color:"#f1f5f9",fontFamily:"'Oxanium',monospace",fontWeight:700,fontSize:"0.84rem"}}>{rule.name}{rule.isCustom&&<span style={{background:"#22c55e20",border:"1px solid #22c55e44",color:"#22c55e",padding:"0 6px",borderRadius:3,fontSize:"0.6rem",marginLeft:8}}>CUSTOM</span>}</div>
-          <div style={{display:"flex",gap:6,marginTop:2}}><SB l={rule.severity}/><TB t={rule.tactic}/></div>
+        <div style={{flex:1}}>
+          <div style={{color:"#f1f5f9",fontFamily:"'Oxanium',monospace",fontWeight:700,fontSize:"0.84rem"}}>{headerTitle}{rule?.isCustom&&<span style={{background:"#22c55e20",border:"1px solid #22c55e44",color:"#22c55e",padding:"0 6px",borderRadius:3,fontSize:"0.6rem",marginLeft:8}}>CUSTOM</span>}</div>
+          <div style={{display:"flex",gap:6,marginTop:2}}><SB l={headerSev}/><TB t={headerTactic}/>
+            {liveAlert&&<code style={{color:"#334155",fontSize:"0.62rem",fontFamily:"monospace"}}>{liveAlert.id}</code>}
+            {liveAlert&&liveAlert.host!=="—"&&<code style={{color:"#38bdf8",fontSize:"0.62rem",fontFamily:"monospace"}}>host:{liveAlert.host}</code>}
+            {liveAlert&&liveAlert.srcIp!=="—"&&<code style={{color:"#f97316",fontSize:"0.62rem",fontFamily:"monospace"}}>src:{liveAlert.srcIp}</code>}
+          </div>
         </div>
         <div>{loading?<span style={{color:gc,fontSize:"0.67rem",fontFamily:"monospace",animation:"pulse 1.5s infinite"}}>● RUNNING</span>:<span style={{color:"#22c55e",fontSize:"0.67rem",fontFamily:"monospace"}}>● READY</span>}</div>
       </div>
       <div style={{flex:1,overflowY:"auto",padding:"12px 18px",display:"flex",flexDirection:"column",gap:10}}>
         {messages.map((m,i)=>(<div key={i}>
           {m.role==="user"&&i>0&&<div style={{display:"flex",justifyContent:"flex-end"}}><div style={{background:"#0f2a3a",border:`1px solid ${gc}33`,borderRadius:"10px 10px 2px 10px",padding:"7px 12px",maxWidth:"65%",color:"#cbd5e1",fontSize:"0.73rem",fontFamily:"monospace"}}>{m.content}</div></div>}
-          {m.role==="assistant"&&<div style={{background:"#080f1e",border:"1px solid #1e293b",borderRadius:"2px 10px 10px 10px",padding:"12px 14px"}}><div style={{color:gc,fontSize:"0.64rem",fontFamily:"monospace",marginBottom:7}}>⚡ OPXDR ·{ts()}</div><MD text={m.content} color={gc}/></div>}
+          {m.role==="assistant"&&m.content&&<div style={{background:"#080f1e",border:"1px solid #1e293b",borderRadius:"2px 10px 10px 10px",padding:"12px 14px"}}><div style={{color:gc,fontSize:"0.64rem",fontFamily:"monospace",marginBottom:7}}>⚡ OPXDR · {m.at||ts()}</div><MD text={m.content} color={gc}/></div>}
         </div>))}
+        {loading&&!streaming&&<div style={{background:"#080f1e",border:`1px solid ${gc}44`,borderRadius:"2px 10px 10px 10px",padding:"12px 14px"}}><div style={{color:gc,fontSize:"0.64rem",fontFamily:"monospace",marginBottom:7,animation:"pulse 1.5s infinite"}}>⚡ ANALYZING... (model warming up — may take 1-2 min)</div></div>}
         {streaming&&<div style={{background:"#080f1e",border:`1px solid ${gc}44`,borderRadius:"2px 10px 10px 10px",padding:"12px 14px"}}><div style={{color:gc,fontSize:"0.64rem",fontFamily:"monospace",marginBottom:7}}>⚡ ANALYZING...</div><MD text={streaming} color={gc}/><span style={{color:gc,animation:"blink 1s infinite"}}>▋</span></div>}
         <div ref={btm}/>
       </div>
+      {!loading&&messages.some(m=>m.role==="assistant"&&(m.content||"").trim().length>40)&&(
+        <div style={{padding:"8px 18px",background:"#060d1a",borderTop:"1px solid #22c55e33",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",flexShrink:0}}>
+          <span style={{color:"#22c55e",fontSize:"0.63rem",fontFamily:"monospace",letterSpacing:1,display:"flex",alignItems:"center",gap:5}}>
+            <span style={{color:"#22c55e",animation:"blink 2s step-end infinite"}}>✓</span> ANALYSIS COMPLETE — choose next action or continue chatting
+          </span>
+          <div style={{flex:1}}/>
+          {onSaveDoc&&<button
+            onClick={()=>onSaveDoc({type:"investigation",title:liveAlert?liveAlert.ruleName:(rule?.name||"Investigation"),alert:liveAlert||null,rule:rule||null,messages})}
+            style={{background:"#22c55e20",border:"1px solid #22c55e55",color:"#22c55e",borderRadius:5,padding:"5px 13px",fontSize:"0.67rem",fontWeight:700,cursor:"pointer",fontFamily:"monospace"}}>
+            💾 Save
+          </button>}
+          <button
+            onClick={()=>run("Based on the investigation above, provide: (1) Top 3 immediate threat hunting queries using Wazuh/KQL/Sigma targeting this specific host, source IP, and rule groups; (2) IOC pivot and expansion steps for each confirmed IOC; (3) Anomaly detection queries for the agent; (4) Recommended next triage actions in priority order.")}
+            style={{background:"#38bdf820",border:"1px solid #38bdf855",color:"#38bdf8",borderRadius:5,padding:"5px 13px",fontSize:"0.67rem",fontWeight:700,cursor:"pointer",fontFamily:"monospace"}}>
+            🔍 Further Triage
+          </button>
+          <button
+            onClick={()=>run("Generate a full Incident Response plan for this detection. Provide: ### 🚨 IR CLASSIFICATION — severity, IR case priority, and notification matrix; ### 📋 CONTAINMENT STEPS — exact shell/Ansible commands to block/isolate NOW; ### 🔍 EVIDENCE COLLECTION — forensic commands for memory, disk, network artifacts; ### 🧹 ERADICATION — how to fully remove the threat; ### 🔄 RECOVERY — steps to safely restore; ### 📝 IR PLAYBOOK REFERENCE — which playbook template to use and how to instantiate it. Be specific with commands, hostnames, and IPs from the alert.")}
+            style={{background:"#f9731620",border:"1px solid #f9731655",color:"#f97316",borderRadius:5,padding:"5px 13px",fontSize:"0.67rem",fontWeight:700,cursor:"pointer",fontFamily:"monospace"}}>
+            🚨 Recommend IR
+          </button>
+          {onSaveDoc&&<button
+            onClick={()=>{onSaveDoc({type:"investigation",title:liveAlert?liveAlert.ruleName:(rule?.name||"Investigation"),alert:liveAlert||null,rule:rule||null,messages});onBack();}}
+            style={{background:"#1e293b",border:"1px solid #334155",color:"#64748b",borderRadius:5,padding:"5px 13px",fontSize:"0.67rem",fontWeight:700,cursor:"pointer",fontFamily:"monospace"}}>
+            💾 Save & Exit
+          </button>}
+        </div>
+      )}
       <div style={{padding:"6px 18px",display:"flex",gap:5,flexWrap:"wrap",background:"#060d1a",borderTop:"1px solid #0f172a"}}>
         {QUICK.map(t=><button key={t} onClick={()=>setInput(t)} style={{background:"#0f172a",border:"1px solid #1e293b",color:"#64748b",borderRadius:5,padding:"3px 9px",fontSize:"0.67rem",cursor:"pointer",fontFamily:"monospace"}} onMouseEnter={e=>{e.target.style.borderColor=gc;e.target.style.color=gc;}} onMouseLeave={e=>{e.target.style.borderColor="#1e293b";e.target.style.color="#64748b";}}>{t}</button>)}
       </div>
       <div style={{padding:"9px 18px",background:"#060d1a",borderTop:"1px solid #0f172a",display:"flex",gap:7}}>
-        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!loading&&input.trim()&&(run(input.trim()),setInput(""))} placeholder="pull logs / anomaly hunt / attack chain / custom task..." disabled={loading} style={{flex:1,background:"#0a1628",border:"1px solid #1e293b",borderRadius:7,color:"#e2e8f0",padding:"8px 12px",fontSize:"0.73rem",fontFamily:"'IBM Plex Mono',monospace",outline:"none"}} onFocus={e=>e.target.style.borderColor=gc} onBlur={e=>e.target.style.borderColor="#1e293b"}/>
+        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!loading&&input.trim()&&(run(input.trim()),setInput(""))} placeholder={liveAlert?"query: pull logs / hunt iocs / expand ioc / block ip / correlate...":"pull logs / anomaly hunt / attack chain / custom task..."} disabled={loading} style={{flex:1,background:"#0a1628",border:"1px solid #1e293b",borderRadius:7,color:"#e2e8f0",padding:"8px 12px",fontSize:"0.73rem",fontFamily:"'IBM Plex Mono',monospace",outline:"none"}} onFocus={e=>e.target.style.borderColor=gc} onBlur={e=>e.target.style.borderColor="#1e293b"}/>
         <button onClick={()=>{if(input.trim()&&!loading){run(input.trim());setInput("");}}} disabled={loading||!input.trim()} style={{background:loading?"#1e293b":gc,color:loading?"#475569":"#020817",border:"none",borderRadius:7,padding:"8px 15px",fontWeight:700,fontSize:"0.73rem",cursor:loading?"not-allowed":"pointer",fontFamily:"monospace",whiteSpace:"nowrap"}}>{loading?"...":"SEND ↵"}</button>
       </div>
     </div>
@@ -500,6 +1055,8 @@ function RuleWriter({onSave,onClose,existing}){
   const[saving,setSaving]=useState(false);
   const[aiLoading,setAiLoading]=useState(false);
   const[aiSug,setAiSug]=useState("");
+  const[valLoading,setValLoading]=useState(false);const[valReport,setValReport]=useState("");
+  const[pbAiLoading,setPbAiLoading]=useState(false);const[pbAiSug,setPbAiSug]=useState("");
 
   const[f,setF]=useState({
     ruleId:existing?.wazuhRuleId||nid, level:existing?.level?.toString()||"12",
@@ -553,8 +1110,23 @@ function RuleWriter({onSave,onClose,existing}){
 
   async function handleAI(){
     if(!f.description)return;setAiLoading(true);setAiSug("");
-    await claude("You are a Wazuh expert.",[{role:"user",content:`For this detection: "${f.description}" (tactic: ${f.tactic}, MITRE: ${f.mitreTechniques.filter(Boolean).join(",")})\nSuggest:\n1. Best <field name="..."> conditions (2-3 pairs)\n2. Optimal level\n3. Best decoder\n4. Correlating if_sid\n5. Any frequency/timeframe if threshold rule\nBe concise. Numbered list.`}],c=>setAiSug(c));
+    await callAgent("ruleAssistant",[{role:"user",content:`Detection: "${f.description}"\nTactic: ${f.tactic} | MITRE: ${f.mitreTechniques.filter(Boolean).join(",")}\nDecoder: ${f.decoderAs} | Level: ${f.level}\n\nProvide:\n1. Best <field name="..."> conditions (2-3 pairs with regex)\n2. Optimal level with justification\n3. Decoder recommendation\n4. if_sid chain from known Wazuh base rules\n5. frequency/timeframe if threshold rule needed\n6. Anti-bypass companion rule if Defense Evasion tactic`}],c=>setAiSug(c),{system:"You are a Wazuh SIEM detection engineer specializing in XML rule writing. Provide precise field conditions, level, decoder, if_sid chains. Be specific with regex values. Format: numbered list, concise."});
     setAiLoading(false);
+  }
+
+  async function handlePbAI(){
+    if(!f.description)return;setPbAiLoading(true);setPbAiSug("");
+    const iocList=pb.iocs.filter(i=>i.value).map(i=>`${i.type}: ${i.value}`).join(", ")||"none tracked yet";
+    await callAgent("irPlaybook",[{role:"user",content:`Generate a complete IR playbook for:\nRule: "${f.description}"\nSeverity: ${f.severity} | Tactic: ${f.tactic} | MITRE: ${f.mitreTechniques.filter(Boolean).join(",")}\nIOCs: ${iocList}\nStack: Wazuh+Suricata+Zeek | IR Case: ${pb.irId}\nAnsible playbooks: triage_collect.yml, containment_block_src.yml, validate_correlation.yml, close_case.yml\n\nGenerate all 5 phases (IDENTIFICATION, CONTAINMENT, ERADICATION, RECOVERY, CLOSE) with specific Ansible commands, time estimates per phase, and tactic-specific steps.`}],c=>setPbAiSug(c),{system:"You are an IR specialist with NIST CSF and MITRE ATT&CK expertise. Generate a complete incident response playbook with all 5 phases. Include specific Ansible playbook commands with -e parameters filled in, estimated time per phase, regulatory flags (GDPR/SEC/GLBA) if applicable, and tactic-specific containment logic. Format with clear phase headers."});
+    setPbAiLoading(false);
+  }
+
+  async function handleValidate(){
+    if(!f.description)return;setValLoading(true);setValReport("");
+    const finalXml=xmlSynced?buildXML(f):rawXml;
+    const finalYaml=yamlSynced?pbToYAML(pb,{id:`CUS-${f.ruleId}`,name:f.description}):rawYaml;
+    await callAgent("validate",[{role:"user",content:`Validate this Wazuh detection rule and IR playbook:\n\nXML:\n\`\`\`xml\n${finalXml}\n\`\`\`\n\nPlaybook YAML:\n\`\`\`yaml\n${finalYaml.slice(0,2000)}\n\`\`\`\n\nMetadata: Rule ID ${f.ruleId} | Level ${f.level} | ${f.tactic} | MITRE: ${f.mitreTechniques.filter(Boolean).join(",")} | Decoder: ${f.decoderAs}`}],c=>setValReport(c),{system:"You are a senior Wazuh detection engineer performing final gate review. Validate the XML rule and IR playbook YAML. Check: XML syntax, decoder compatibility, MITRE technique validity, level vs tactic severity, YAML syntax, all 5 phases present, unresolved {PLACEHOLDER} variables, regulatory flag appropriateness. Output a FINAL VALIDATION REPORT with Gate Status (✅ PASS / ⚠ WARNINGS / 🚫 BLOCKED) and specific actionable findings per category."});
+    setValLoading(false);
   }
 
   function doSave(){
@@ -680,7 +1252,7 @@ function RuleWriter({onSave,onClose,existing}){
               </div>
               {/* Right: AI assist + alert preview */}
               <div style={{padding:18,display:"flex",flexDirection:"column",gap:12}}>
-                <div style={{color:"#38bdf8",fontSize:"0.66rem",fontFamily:"monospace",letterSpacing:2}}>🤖 AI RULE ASSISTANT</div>
+                <div style={{color:"#38bdf8",fontSize:"0.66rem",fontFamily:"monospace",letterSpacing:2,display:"flex",alignItems:"center",gap:8}}>🤖 RULE WRITER AGENT<span style={{color:"#334155",fontSize:"0.6rem",fontFamily:"monospace",letterSpacing:0}}>DeepSeek Coder → Mistral fallback</span></div>
                 <button onClick={handleAI} disabled={!f.description||aiLoading} style={{background:f.description&&!aiLoading?"#38bdf820":"#0f172a",border:`1px solid ${f.description&&!aiLoading?"#38bdf855":"#1e293b"}`,color:f.description&&!aiLoading?"#38bdf8":"#475569",borderRadius:7,padding:"8px",fontSize:"0.73rem",cursor:f.description&&!aiLoading?"pointer":"not-allowed",fontFamily:"monospace",fontWeight:700}}>{aiLoading?"⟳ Analyzing...":"⚡ AI SUGGEST FIELD CONDITIONS"}</button>
                 {aiSug?(
                   <div style={{background:"#060d1a",border:"1px solid #38bdf833",borderRadius:8,padding:12,flex:1,overflowY:"auto"}}><MD text={aiSug} color="#38bdf8"/></div>
@@ -783,10 +1355,17 @@ function RuleWriter({onSave,onClose,existing}){
               })}
               <button onClick={()=>setPb(p=>({...p,steps:[...p.steps,{phase:"IDENTIFICATION",action:"",cmd:"",done:false,notes:""}]}))}
                 style={{background:"#0f172a",border:"1px dashed #1e293b",color:"#475569",borderRadius:6,padding:"7px",fontSize:"0.71rem",cursor:"pointer",fontFamily:"monospace",width:"100%",marginTop:4}}>+ Add Custom Step</button>
-              <div style={{marginTop:12,display:"flex",gap:8}}>
+              <div style={{marginTop:12,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
                 <button onClick={()=>{const tmpl=getPBTemplate(f.tactic);setPb(p=>({...p,steps:tmpl.steps.map(s=>({...s,done:false,notes:""}))}));}} style={{background:"#0f172a",border:"1px solid #1e293b",color:"#64748b",borderRadius:6,padding:"5px 13px",fontSize:"0.69rem",cursor:"pointer",fontFamily:"monospace"}}>↺ Reload Template</button>
-                <span style={{color:"#475569",fontSize:"0.65rem",fontFamily:"monospace",alignSelf:"center"}}>Steps + IOCs + notifications save into the YAML on register.</span>
+                <button onClick={handlePbAI} disabled={pbAiLoading||!f.description} style={{background:pbAiLoading?"#0f172a":"#f9731620",border:`1px solid ${pbAiLoading?"#1e293b":"#f9731655"}`,color:pbAiLoading?"#475569":"#f97316",borderRadius:6,padding:"5px 13px",fontSize:"0.69rem",cursor:pbAiLoading||!f.description?"not-allowed":"pointer",fontFamily:"monospace",fontWeight:700}}>{pbAiLoading?"⟳ Generating...":"🤖 AI Generate Playbook"}</button>
+                <span style={{color:"#475569",fontSize:"0.65rem",fontFamily:"monospace"}}>Steps + IOCs + notifications save into the YAML on register.</span>
               </div>
+              {pbAiSug&&(
+                <div style={{marginTop:12,background:"#060d1a",border:"1px solid #f9731833",borderRadius:8,padding:"12px 14px"}}>
+                  <div style={{color:"#f97316",fontSize:"0.65rem",fontFamily:"monospace",marginBottom:8,letterSpacing:1}}>🤖 IR PLAYBOOK AGENT — Mistral Large · Review suggestions and copy steps above</div>
+                  <MD text={pbAiSug} color="#f97316"/>
+                </div>
+              )}
             </div>
           )}
 
@@ -865,6 +1444,15 @@ function RuleWriter({onSave,onClose,existing}){
                 />
                 {!yamlSynced&&<div style={{color:"#f97316",fontSize:"0.65rem",fontFamily:"monospace",marginTop:4}}>⚠ Contains manual edits</div>}
               </div>
+              {/* ── VALIDATION AGENT GATE ── */}
+              <div style={{gridColumn:"1/-1",borderTop:"1px solid #1e293b",paddingTop:12,marginBottom:4}}>
+                <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:valReport?10:0,flexWrap:"wrap"}}>
+                  <button onClick={handleValidate} disabled={valLoading||!f.description} style={{background:valLoading?"#0f172a":valReport?"#a78bfa20":"#38bdf820",border:`1px solid ${valLoading?"#1e293b":valReport?"#a78bfa55":"#38bdf855"}`,color:valLoading?"#475569":valReport?"#a78bfa":"#38bdf8",borderRadius:6,padding:"6px 16px",fontSize:"0.71rem",fontWeight:700,cursor:valLoading||!f.description?"not-allowed":"pointer",fontFamily:"monospace"}}>{valLoading?"⟳ Validating...":valReport?"↺ Re-validate":"🔍 Validate with AI (Claude Sonnet)"}</button>
+                  {valReport&&<span style={{color:"#475569",fontSize:"0.63rem",fontFamily:"monospace"}}>Validation Agent complete — review gate status before registering</span>}
+                  {!valReport&&!valLoading&&<span style={{color:"#334155",fontSize:"0.63rem",fontFamily:"monospace"}}>Run validation gate before registering to catch XML errors and playbook gaps</span>}
+                </div>
+                {valReport&&<div style={{background:"#060d1a",border:"1px solid #a78bfa33",borderRadius:8,padding:"12px 14px",maxHeight:300,overflowY:"auto"}}><MD text={valReport} color="#a78bfa"/></div>}
+              </div>
               <div style={{gridColumn:"1/-1",display:"flex",gap:10,alignItems:"center",padding:"10px 0",borderTop:"1px solid #1e293b"}}>
                 <div style={{color:"#475569",fontSize:"0.7rem",fontFamily:"monospace",flex:1}}>Rule <code style={{color:"#22c55e"}}>{f.ruleId}</code> · <code style={{color:"#64748b"}}>level {f.level}</code> · {f.tactic} · MITRE: {f.mitreTechniques.filter(Boolean).join(", ")}</div>
                 <button onClick={doSave} disabled={!f.description||saving} style={{background:f.description?"#22c55e":"#1e293b",color:f.description?"#020817":"#475569",border:"none",borderRadius:7,padding:"9px 22px",fontWeight:800,fontSize:"0.76rem",cursor:f.description?"pointer":"not-allowed",fontFamily:"'Oxanium',monospace",letterSpacing:1}}>{saving?"SAVING...":"✓ SAVE & REGISTER RULE"}</button>
@@ -878,25 +1466,343 @@ function RuleWriter({onSave,onClose,existing}){
 }
 
 // ─── RULE ROW ─────────────────────────────────────────────────────────────────
-function RuleRow({rule,gc,onSelect,onDelete}){
+function RuleRow({rule,gc,onSelect,onDelete,customRules}){
   const[h,setH]=useState(false);
+  const[showInv,setShowInv]=useState(false);
   return(
-    <div onMouseEnter={()=>setH(true)} onMouseLeave={()=>setH(false)} style={{display:"grid",gridTemplateColumns:"100px 1fr 145px 100px 100px",alignItems:"center",gap:10,padding:"8px 16px",background:h?"#0a1628":"transparent",borderBottom:"1px solid #0f172a",transition:"background 0.1s"}}>
-      <code style={{color:gc,fontSize:"0.69rem",fontFamily:"monospace",cursor:"pointer"}} onClick={()=>onSelect(rule)}>{rule.id}</code>
-      <div onClick={()=>onSelect(rule)} style={{cursor:"pointer"}}>
-        <div style={{color:"#e2e8f0",fontSize:"0.75rem",fontFamily:"'Oxanium',monospace",display:"flex",alignItems:"center",gap:5}}>
-          {rule.name}
-          {rule.isCustom&&<span style={{background:"#22c55e20",border:"1px solid #22c55e44",color:"#22c55e",padding:"0 5px",borderRadius:3,fontSize:"0.59rem"}}>CUSTOM</span>}
-          {rule.playbook&&<span style={{background:"#f9731620",border:"1px solid #f9731644",color:"#f97316",padding:"0 5px",borderRadius:3,fontSize:"0.59rem"}}>+IR</span>}
+    <div>
+      <div onMouseEnter={()=>setH(true)} onMouseLeave={()=>setH(false)} style={{display:"grid",gridTemplateColumns:"100px 1fr 145px 100px 115px",alignItems:"center",gap:10,padding:"8px 16px",background:h||showInv?"#0a1628":"transparent",borderBottom:showInv?"none":"1px solid #0f172a",transition:"background 0.1s"}}>
+        <code style={{color:gc,fontSize:"0.69rem",fontFamily:"monospace",cursor:"pointer"}} onClick={()=>onSelect(rule)}>{rule.id}</code>
+        <div onClick={()=>onSelect(rule)} style={{cursor:"pointer"}}>
+          <div style={{color:"#e2e8f0",fontSize:"0.75rem",fontFamily:"'Oxanium',monospace",display:"flex",alignItems:"center",gap:5}}>
+            {rule.name}
+            {rule.isCustom&&<span style={{background:"#22c55e20",border:"1px solid #22c55e44",color:"#22c55e",padding:"0 5px",borderRadius:3,fontSize:"0.59rem"}}>CUSTOM</span>}
+            {rule.playbook&&<span style={{background:"#f9731620",border:"1px solid #f9731644",color:"#f97316",padding:"0 5px",borderRadius:3,fontSize:"0.59rem"}}>+IR</span>}
+          </div>
+          <div style={{color:"#334155",fontSize:"0.61rem",fontFamily:"monospace",marginTop:1}}>{rule.file}</div>
         </div>
-        <div style={{color:"#334155",fontSize:"0.61rem",fontFamily:"monospace",marginTop:1}}>{rule.file}</div>
+        <div onClick={()=>onSelect(rule)} style={{cursor:"pointer"}}><TB t={rule.tactic}/></div>
+        <code style={{color:"#334155",fontSize:"0.65rem",cursor:"pointer"}} onClick={()=>onSelect(rule)}>{rule.mitre.split(",")[0]}{rule.mitre.includes(",")?"…":""}</code>
+        <div style={{display:"flex",gap:4,alignItems:"center",justifyContent:"flex-end"}}>
+          <SB l={rule.severity}/>
+          <button onClick={e=>{e.stopPropagation();setShowInv(v=>!v);}} title={showInv?"Close investigation":"Inline investigation"} style={{background:showInv?"#a855f730":"none",border:`1px solid ${showInv?"#a855f755":"#1e293b"}`,color:showInv?"#a855f7":"#475569",borderRadius:4,padding:"2px 7px",fontSize:"0.65rem",cursor:"pointer",fontFamily:"monospace",transition:"all 0.15s"}} onMouseEnter={e=>{if(!showInv){e.target.style.borderColor="#a855f755";e.target.style.color="#a855f7";}}} onMouseLeave={e=>{if(!showInv){e.target.style.borderColor="#1e293b";e.target.style.color="#475569";}}}>🔬</button>
+          {rule.isCustom&&onDelete&&<button onClick={e=>{e.stopPropagation();onDelete(rule.id);}} style={{background:"none",border:"1px solid #ff444433",color:"#ff6060",borderRadius:4,padding:"1px 5px",fontSize:"0.61rem",cursor:"pointer",fontFamily:"monospace",opacity:0.5}} onMouseEnter={e=>e.target.style.opacity="1"} onMouseLeave={e=>e.target.style.opacity="0.5"}>✕</button>}
+        </div>
       </div>
-      <div onClick={()=>onSelect(rule)} style={{cursor:"pointer"}}><TB t={rule.tactic}/></div>
-      <code style={{color:"#334155",fontSize:"0.65rem",cursor:"pointer"}} onClick={()=>onSelect(rule)}>{rule.mitre.split(",")[0]}{rule.mitre.includes(",")?"…":""}</code>
-      <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"flex-end"}}>
-        <SB l={rule.severity}/>
-        {rule.isCustom&&onDelete&&<button onClick={e=>{e.stopPropagation();onDelete(rule.id);}} style={{background:"none",border:"1px solid #ff444433",color:"#ff6060",borderRadius:4,padding:"1px 5px",fontSize:"0.61rem",cursor:"pointer",fontFamily:"monospace",opacity:0.5}} onMouseEnter={e=>e.target.style.opacity="1"} onMouseLeave={e=>e.target.style.opacity="0.5"}>✕</button>}
+      {showInv&&(
+        <div style={{padding:"0 16px 14px 16px",background:"#0a1628",borderBottom:"1px solid #0f172a"}}>
+          <InlineAgentChat rule={rule} liveAlert={null} customRules={customRules||[]} gc={gc}/>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Single investigation card — has its own inline chat state ────────────────
+function InvestigationCard({a,done,onInvestigate,customRules}){
+  const s=SEV[a.severity]||SEV.HIGH;
+  return(
+    <div style={{background:"#0a1117",border:`1px solid ${done?"#22c55e33":s.border+"33"}`,borderRadius:10,overflow:"hidden",marginBottom:10}}>
+      <div style={{display:"flex"}}>
+        <div style={{width:4,background:done?"#22c55e":s.border,flexShrink:0}}/>
+        <div style={{flex:1,padding:"12px 14px"}}>
+          {/* Header */}
+          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:8}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                <span style={{color:"#e2e8f0",fontFamily:"'Oxanium',monospace",fontWeight:700,fontSize:"0.83rem"}}>{a.ruleName}</span>
+                <SB l={a.severity}/>
+                {done&&<span style={{background:"#22c55e20",border:"1px solid #22c55e44",color:"#22c55e",padding:"1px 7px",borderRadius:3,fontSize:"0.61rem",fontFamily:"monospace"}}>✓ INVESTIGATED</span>}
+              </div>
+              <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                <code style={{color:"#334155",fontSize:"0.64rem",fontFamily:"monospace"}}>{a.ruleId}</code>
+                <TB t={a.tactic}/>
+                {(a.mitre||"—").split(",").filter(m=>m&&m!=="—").map(m=><code key={m} style={{background:"#0f172a",border:"1px solid #1e293b",color:"#79c0ff",padding:"1px 5px",borderRadius:3,fontSize:"0.63rem",fontFamily:"monospace"}}>{m}</code>)}
+              </div>
+            </div>
+            <span style={{color:"#334155",fontSize:"0.67rem",fontFamily:"monospace",whiteSpace:"nowrap",marginLeft:10}}>{timeAgo(a.time)}</span>
+          </div>
+          {/* Observables grid */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:5,marginBottom:8}}>
+            {[
+              {k:"host",v:a.host},
+              {k:"src_ip",v:a.srcIp},
+              {k:"dst_ip",v:a.dstIp},
+              {k:"account",v:a.account},
+              {k:"agent",v:a.agentId&&a.agentId!=="—"?`${a.agentId}@${a.agentIp||""}`:null},
+              {k:"decoder",v:a.decoder&&a.decoder!=="—"?a.decoder:null},
+              {k:"location",v:a.location&&a.location!=="—"?a.location:null},
+            ].filter(({v})=>v&&v!=="—"&&v!=="— @ "&&v!=="—@").map(({k,v})=>(
+              <div key={k} style={{background:"#060d1a",border:"1px solid #1e293b",borderRadius:5,padding:"4px 8px"}}>
+                <div style={{color:"#475569",fontSize:"0.59rem",fontFamily:"monospace"}}>{k}</div>
+                <div style={{color:"#e2e8f0",fontSize:"0.71rem",fontFamily:"monospace",wordBreak:"break-all"}}>{v}</div>
+              </div>
+            ))}
+          </div>
+          {/* IOCs */}
+          {a.iocs&&a.iocs.length>0&&(
+            <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8,padding:"5px 8px",background:"#0d0208",border:"1px solid #fbbf2422",borderRadius:6}}>
+              <span style={{color:"#475569",fontSize:"0.59rem",fontFamily:"monospace",alignSelf:"center",marginRight:2}}>IOC</span>
+              {a.iocs.map((ioc,i)=>(
+                <span key={i} style={{background:"#fbbf2412",border:"1px solid #fbbf2450",color:"#fcd34d",padding:"2px 8px",borderRadius:4,fontSize:"0.66rem",fontFamily:"monospace"}}>[{ioc.t}] {ioc.v}</span>
+              ))}
+            </div>
+          )}
+          {/* Raw log */}
+          {a.fullLog&&(
+            <div style={{marginBottom:8,padding:"4px 8px",background:"#060d1a",border:"1px solid #1e293b33",borderRadius:5}}>
+              <div style={{color:"#475569",fontSize:"0.59rem",fontFamily:"monospace",marginBottom:2}}>raw_log</div>
+              <div style={{color:"#64748b",fontSize:"0.64rem",fontFamily:"monospace",wordBreak:"break-all",whiteSpace:"pre-wrap"}}>{a.fullLog.slice(0,200)}{a.fullLog.length>200?"…":""}</div>
+            </div>
+          )}
+          {/* Action */}
+          <button onClick={()=>onInvestigate&&onInvestigate(a)} style={{background:done?"#22c55e20":"#a855f720",border:`1px solid ${done?"#22c55e55":"#a855f755"}`,color:done?"#22c55e":"#a855f7",borderRadius:6,padding:"6px 16px",fontSize:"0.72rem",fontWeight:700,cursor:"pointer",fontFamily:"monospace",letterSpacing:0.5}}>
+            {done?"↻ Re-Investigate":"🔬 Run Investigation"}
+          </button>
+        </div>
       </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AGENT INVESTIGATIONS TAB — real Wazuh detections only
+// ═══════════════════════════════════════════════════════════════════════════════
+const MEDIUM_PLUS=new Set(["CRITICAL","HIGH","MEDIUM"]);
+const HIGH_PLUS=new Set(["CRITICAL","HIGH"]);
+function InvestigationsTab({alerts,customRules,onInvestigate,investigated}){
+  const[sevFilter,setSevFilter]=useState("ALL");
+  const[sortBy,setSortBy]=useState("severity");
+  const[searchQ,setSearchQ]=useState("");
+  const sq=searchQ.toLowerCase();
+
+  // Investigations shows HIGH and CRITICAL only — MEDIUM goes to live feed
+  const items=alerts
+    .filter(a=>HIGH_PLUS.has(a.severity))
+    .filter(a=>sevFilter==="ALL"||a.severity===sevFilter)
+    .filter(a=>!sq||(a.ruleName||"").toLowerCase().includes(sq)||(a.host||"").toLowerCase().includes(sq)||(a.srcIp||"").toLowerCase().includes(sq)||(a.ruleId||"").toLowerCase().includes(sq))
+    .sort((a,b)=>{
+      if(sortBy==="severity"){const o={CRITICAL:0,HIGH:1};const d=(o[a.severity]??2)-(o[b.severity]??2);return d!==0?d:new Date(b.time)-new Date(a.time);}
+      return new Date(b.time)-new Date(a.time);
+    });
+
+  const counts={
+    CRITICAL:alerts.filter(a=>a.severity==="CRITICAL").length,
+    HIGH:alerts.filter(a=>a.severity==="HIGH").length,
+    MEDIUM:alerts.filter(a=>a.severity==="MEDIUM").length,
+    total:alerts.filter(a=>HIGH_PLUS.has(a.severity)).length,
+  };
+
+  return(
+    <div style={{padding:"16px 24px"}}>
+      {/* Stats */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:16}}>
+        {[
+          {l:"TOTAL HIGH+",v:counts.total,c:"#e2e8f0"},
+          {l:"CRITICAL",v:counts.CRITICAL,c:"#ff6060"},
+          {l:"HIGH",v:counts.HIGH,c:"#f97316"},
+          {l:"MED · LIVE FEED",v:counts.MEDIUM,c:"#64748b"},
+        ].map(({l,v,c})=>(
+          <div key={l} style={{background:"#060d1a",border:"1px solid #1e293b",borderRadius:8,padding:"10px 14px"}}>
+            <div style={{color:"#334155",fontSize:"0.62rem",fontFamily:"monospace",letterSpacing:1}}>{l}</div>
+            <div style={{color:c,fontSize:"1.4rem",fontFamily:"'Oxanium',monospace",fontWeight:800,marginTop:3}}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filter bar */}
+      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14,flexWrap:"wrap"}}>
+        <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="Search rule / host / IP..." style={{background:"#0a1628",border:"1px solid #1e293b",borderRadius:6,color:"#94a3b8",padding:"5px 12px",fontSize:"0.72rem",fontFamily:"monospace",outline:"none",width:260}}/>
+        {["ALL","CRITICAL","HIGH"].map(s=>(
+          <button key={s} onClick={()=>setSevFilter(s)} style={{background:sevFilter===s?"#1e3a5f":"#0a1628",border:`1px solid ${sevFilter===s?"#38bdf8":"#1e293b"}`,color:sevFilter===s?"#38bdf8":"#475569",borderRadius:5,padding:"4px 11px",fontSize:"0.67rem",fontFamily:"monospace",cursor:"pointer"}}>{s}</button>
+        ))}
+        <div style={{flex:1}}/>
+        <span style={{color:"#334155",fontSize:"0.65rem",fontFamily:"monospace"}}>sort:</span>
+        <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{background:"#0a1628",border:"1px solid #1e293b",color:"#94a3b8",borderRadius:5,padding:"4px 9px",fontSize:"0.67rem",fontFamily:"monospace"}}>
+          <option value="severity">Severity</option>
+          <option value="time">Time</option>
+        </select>
+        <span style={{color:"#22c55e",fontSize:"0.65rem",fontFamily:"monospace",animation:"pulse 2s infinite"}}>● LIVE</span>
+      </div>
+
+      {items.length===0&&(
+        <div style={{textAlign:"center",padding:"60px 20px",color:"#334155",fontFamily:"monospace",fontSize:"0.75rem"}}>
+          <div style={{fontSize:"2rem",marginBottom:12}}>🛡️</div>
+          <div>No Wazuh detections matching filter.</div>
+          <div style={{marginTop:6,fontSize:"0.65rem",color:"#1e293b"}}>Alerts stream from /api/alerts/stream — verify Wazuh is sending events (min level {">"}= configured threshold).</div>
+        </div>
+      )}
+
+      {items.map(a=>(
+        <InvestigationCard key={a.id} a={a} done={investigated.has(a.id)} onInvestigate={onInvestigate} customRules={customRules}/>
+      ))}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DOCUMENTS TAB — saved investigations + reports
+// ═══════════════════════════════════════════════════════════════════════════════
+function DocumentsTab({docs,onDelete}){
+  const[search,setSearch]=useState("");
+  const[typeFilter,setTypeFilter]=useState("all");
+  const[viewDoc,setViewDoc]=useState(null);
+  const sq=search.toLowerCase();
+
+  const filtered=[...docs]
+    .filter(d=>typeFilter==="all"||d.type===typeFilter)
+    .filter(d=>!sq||(d.title||"").toLowerCase().includes(sq)||(d.alert?.ruleName||"").toLowerCase().includes(sq)||(d.alert?.srcIp||"").toLowerCase().includes(sq))
+    .sort((a,b)=>new Date(b.savedAt)-new Date(a.savedAt));
+
+  const typeColor=t=>t==="investigation"?"#a855f7":"#38bdf8";
+  const typeIcon=t=>t==="investigation"?"🔬":"📊";
+
+  function exportText(doc){
+    if(doc.type==="investigation")
+      return(doc.messages||[]).filter(m=>m.role==="assistant").map(m=>m.content).join("\n\n---\n\n");
+    return doc.report||"";
+  }
+
+  return(
+    <div style={{padding:"16px 24px"}}>
+      {/* Stats bar */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:16}}>
+        {[
+          {l:"TOTAL SAVED",  v:docs.length,                                              c:"#e2e8f0"},
+          {l:"INVESTIGATIONS",v:docs.filter(d=>d.type==="investigation").length,         c:"#a855f7"},
+          {l:"REPORTS",      v:docs.filter(d=>d.type==="report").length,                 c:"#38bdf8"},
+          {l:"CRITICAL",     v:docs.filter(d=>d.alert?.severity==="CRITICAL").length,    c:"#ff6060"},
+        ].map(({l,v,c})=>(
+          <div key={l} style={{background:"#060d1a",border:"1px solid #1e293b",borderRadius:8,padding:"10px 14px"}}>
+            <div style={{color:"#334155",fontSize:"0.62rem",fontFamily:"monospace",letterSpacing:1}}>{l}</div>
+            <div style={{color:c,fontSize:"1.4rem",fontFamily:"'Oxanium',monospace",fontWeight:800,marginTop:3}}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filter bar */}
+      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14,flexWrap:"wrap"}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search title / rule / IP..."
+          style={{background:"#0a1628",border:"1px solid #1e293b",borderRadius:6,color:"#94a3b8",padding:"5px 12px",fontSize:"0.72rem",fontFamily:"monospace",outline:"none",width:260}}/>
+        {["all","investigation","report"].map(t=>(
+          <button key={t} onClick={()=>setTypeFilter(t)} style={{background:typeFilter===t?"#1e3a5f":"#0a1628",border:`1px solid ${typeFilter===t?"#38bdf8":"#1e293b"}`,color:typeFilter===t?"#38bdf8":"#475569",borderRadius:5,padding:"4px 11px",fontSize:"0.67rem",fontFamily:"monospace",cursor:"pointer"}}>
+            {t.toUpperCase()}
+          </button>
+        ))}
+        <div style={{flex:1}}/>
+        <span style={{color:"#334155",fontSize:"0.65rem",fontFamily:"monospace"}}>{filtered.length} document{filtered.length!==1?"s":""}</span>
+      </div>
+
+      {/* Empty state */}
+      {filtered.length===0&&(
+        <div style={{textAlign:"center",padding:"60px 20px",color:"#334155",fontFamily:"monospace",fontSize:"0.75rem"}}>
+          <div style={{fontSize:"2rem",marginBottom:12}}>📁</div>
+          <div>No saved documents.</div>
+          <div style={{marginTop:6,fontSize:"0.65rem",color:"#1e293b"}}>Use 💾 Save Investigation (in Agent Chat) or 💾 Save Report (on alert cards) to save here.</div>
+        </div>
+      )}
+
+      {/* Document cards */}
+      {filtered.map(doc=>{
+        const tc=typeColor(doc.type);
+        return(
+          <div key={doc.id} style={{background:"#0a1117",border:`1px solid ${tc}33`,borderRadius:10,overflow:"hidden",marginBottom:10}}>
+            <div style={{display:"flex"}}>
+              <div style={{width:4,background:tc,flexShrink:0}}/>
+              <div style={{flex:1,padding:"12px 14px"}}>
+                {/* Header row */}
+                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:8}}>
+                  <div>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                      <span style={{fontSize:"0.85rem"}}>{typeIcon(doc.type)}</span>
+                      <span style={{color:"#e2e8f0",fontFamily:"'Oxanium',monospace",fontWeight:700,fontSize:"0.82rem"}}>{doc.title}</span>
+                      <span style={{background:tc+"20",border:`1px solid ${tc}55`,color:tc,padding:"1px 7px",borderRadius:3,fontSize:"0.61rem",fontFamily:"monospace"}}>{doc.type.toUpperCase()}</span>
+                      {doc.alert?.severity&&<SB l={doc.alert.severity}/>}
+                    </div>
+                    {doc.alert&&(
+                      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                        <code style={{color:"#334155",fontSize:"0.63rem",fontFamily:"monospace"}}>{doc.alert.id}</code>
+                        {doc.alert.tactic&&<TB t={doc.alert.tactic}/>}
+                        {doc.alert.host&&doc.alert.host!=="—"&&<code style={{color:"#38bdf8",fontSize:"0.62rem",fontFamily:"monospace"}}>host:{doc.alert.host}</code>}
+                        {doc.alert.srcIp&&doc.alert.srcIp!=="—"&&<code style={{color:"#f97316",fontSize:"0.62rem",fontFamily:"monospace"}}>src:{doc.alert.srcIp}</code>}
+                      </div>
+                    )}
+                  </div>
+                  <span style={{color:"#334155",fontSize:"0.64rem",fontFamily:"monospace",whiteSpace:"nowrap",marginLeft:10}}>{new Date(doc.savedAt).toLocaleString()}</span>
+                </div>
+
+                {/* Metadata line */}
+                {doc.type==="investigation"&&doc.messages&&(
+                  <div style={{color:"#475569",fontSize:"0.63rem",fontFamily:"monospace",marginBottom:8}}>
+                    {doc.messages.filter(m=>m.role==="assistant").length} agent response{doc.messages.filter(m=>m.role==="assistant").length!==1?"s":""} · {doc.messages.length} total messages
+                  </div>
+                )}
+                {doc.type==="report"&&doc.report&&(
+                  <div style={{color:"#64748b",fontSize:"0.65rem",fontFamily:"monospace",marginBottom:8,overflow:"hidden",maxHeight:48,lineHeight:1.5}}>
+                    {doc.report.slice(0,220)}{doc.report.length>220?"…":""}
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  <button onClick={()=>setViewDoc(doc)} style={{background:`${tc}20`,border:`1px solid ${tc}55`,color:tc,borderRadius:6,padding:"4px 12px",fontSize:"0.69rem",fontWeight:700,cursor:"pointer",fontFamily:"monospace"}}>
+                    👁 View
+                  </button>
+                  <button onClick={()=>navigator.clipboard?.writeText(exportText(doc))} style={{background:"#0f172a",border:"1px solid #1e293b",color:"#64748b",borderRadius:6,padding:"4px 12px",fontSize:"0.69rem",cursor:"pointer",fontFamily:"monospace"}}>
+                    📋 Copy
+                  </button>
+                  <button onClick={()=>onDelete&&onDelete(doc.id)} style={{background:"none",border:"1px solid #1e293b",color:"#475569",borderRadius:6,padding:"4px 12px",fontSize:"0.69rem",cursor:"pointer",fontFamily:"monospace"}}>
+                    ✕ Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* View Document Modal */}
+      {viewDoc&&(
+        <div style={{position:"fixed",inset:0,background:"#000000e0",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:16}}>
+          <div style={{background:"#0a1628",border:"1px solid #1e293b",borderRadius:12,width:"min(960px,96vw)",maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            <div style={{padding:"12px 18px",borderBottom:"1px solid #1e293b",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+              <div>
+                <div style={{color:"#e2e8f0",fontFamily:"'Oxanium',monospace",fontWeight:700,fontSize:"0.85rem"}}>{viewDoc.title}</div>
+                <div style={{color:"#475569",fontSize:"0.63rem",fontFamily:"monospace",marginTop:2}}>Saved {new Date(viewDoc.savedAt).toLocaleString()} · {viewDoc.type}</div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>navigator.clipboard?.writeText(exportText(viewDoc))} style={{background:"#1e293b",border:"none",color:"#94a3b8",borderRadius:6,padding:"6px 12px",fontSize:"0.7rem",cursor:"pointer",fontFamily:"monospace"}}>📋 Copy</button>
+                <button onClick={()=>setViewDoc(null)} style={{background:"none",border:"1px solid #1e293b",color:"#64748b",borderRadius:6,padding:"6px 12px",cursor:"pointer",fontSize:"0.72rem",fontFamily:"monospace"}}>✕ Close</button>
+              </div>
+            </div>
+            <div style={{flex:1,overflowY:"auto",padding:"16px 18px"}}>
+              {viewDoc.type==="investigation"&&viewDoc.messages&&(
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {viewDoc.messages.map((m,i)=>(
+                    <div key={i}>
+                      {m.role==="user"&&i>0&&(
+                        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:4}}>
+                          <span style={{background:"#0f2a3a",border:"1px solid #a855f733",borderRadius:"8px 8px 2px 8px",padding:"5px 10px",color:"#cbd5e1",fontSize:"0.69rem",fontFamily:"monospace",display:"inline-block",maxWidth:"70%"}}>{m.content.slice(0,400)}{m.content.length>400?"…":""}</span>
+                        </div>
+                      )}
+                      {m.role==="assistant"&&(
+                        <div style={{background:"#060d1a",border:"1px solid #a855f722",borderRadius:"2px 8px 8px 8px",padding:"10px 14px"}}>
+                          <MD text={m.content} color="#a855f7"/>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {viewDoc.type==="report"&&(
+                <div style={{background:"#060d1a",border:"1px solid #38bdf833",borderRadius:8,padding:"14px 16px"}}>
+                  <MD text={viewDoc.report||""} color="#38bdf8"/>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -906,13 +1812,13 @@ function RuleRow({rule,gc,onSelect,onDelete}){
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App(){
   const[customRules,setCustomRules]=useState([]);
-  const[slackAlerts,setSlackAlerts]=useState(MOCK_ALERTS);
+  const[slackAlerts,setSlackAlerts]=useState([]);
   const[liveRuleGroups,setLiveRuleGroups]=useState({}); // groups fetched from backend
   const[selected,setSelected]=useState(null);
   const[expanded,setExpanded]=useState(Object.keys(STATIC_REG));
   const[filter,setFilter]=useState("");
   const[modal,setModal]=useState(null);
-  const[nav,setNav]=useState("registry"); // registry | slack
+  const[nav,setNav]=useState("registry"); // registry | slack | agent | documents | geointel
   const[time,setTime]=useState(new Date());
   const[backendStatus,setBackendStatus]=useState(null); // null | "ok" | "down"
   const[settings,setSettings]=useState({
@@ -921,9 +1827,19 @@ export default function App(){
   });
   // Track which alert ids we've already auto-analyzed to avoid duplicate AI calls.
   const autoSeenRef=useRef(new Set());
+  const[investigated,setInvestigated]=useState(new Set());
+  const[savedDocs,setSavedDocs]=useState([]);
+
+  // Listen for GeoIntel back navigation
+  useEffect(() => {
+    const handler = (e) => setNav(e.detail || "registry");
+    window.addEventListener("opxdr-nav", handler);
+    return () => window.removeEventListener("opxdr-nav", handler);
+  }, []);
 
   // Load persisted custom rules from localStorage
   useEffect(()=>{dbLoad(SK_RULES).then(r=>{if(r)setCustomRules(r);});const t=setInterval(()=>setTime(new Date()),1000);return()=>clearInterval(t);},[]);
+  useEffect(()=>{dbLoad(SK_DOCS).then(d=>{if(d)setSavedDocs(d);});},[]);
 
   // Pull AI/Slack capability flags from backend on mount
   useEffect(()=>{
@@ -957,6 +1873,14 @@ export default function App(){
       .catch(()=>setBackendStatus("down"));
   },[]);
 
+  // Load recent alerts from backend on mount (indexer or file fallback)
+  useEffect(()=>{
+    fetch("/api/alerts/recent?limit=500")
+      .then(r=>r.json())
+      .then(j=>{if(Array.isArray(j.alerts)&&j.alerts.length>0)setSlackAlerts(j.alerts.map(normalizeApiAlert));})
+      .catch(()=>{});
+  },[]);
+
   // SSE: stream live alerts from backend, append to slackAlerts.
   // Read settings via ref so the handler always sees the latest toggles
   // without needing to tear down/rebuild EventSource on every change.
@@ -971,12 +1895,23 @@ export default function App(){
       ? alert.severity==="CRITICAL"
       : (alert.severity==="CRITICAL"||alert.severity==="HIGH");
     if(!s.autoAi||s.aiProvider==="none"||!sevOk)return;
-    setSlackAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,reportLoading:true}:a));
+    // Phase 1 — Log Analysis: normalize IOCs from raw Wazuh log
+    setSlackAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,reportLoading:true,reportPhase:"log-analysis"}:a));
+    let logCtx="";
     try{
-      const report=await generateAgentReport(alert,{slackNotify:s.slackNotify&&s.slackEnabled});
-      setSlackAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,reportLoading:false,agentReport:{text:report,at:ts()}}:a));
+      logCtx=await callAgent("logAnalysis",[{role:"user",content:`Analyze this Wazuh alert and normalize all IOCs:\n${formatAlertForAgent(alert)}\n\nTasks:\n1. Classify each IOC: CONFIRMED/SUSPECTED/NOISE\n2. Classify event: BENIGN/SUSPICIOUS/MALICIOUS\n3. Identify MITRE phase and attack pattern\n4. Output a 3-sentence structured summary for the report agent.`}],()=>{},{system:"You are a SOC log analysis pre-processor (Llama 3.1 8B). Parse Wazuh alert metadata, normalize IOC fields from the raw log, classify each IOC and the overall event. Produce a concise 3-sentence summary: (1) event classification and confidence, (2) IOC classification, (3) recommended analyst action."});
+    }catch(e){console.warn("[autoAnalyze logAnalysis]",e.message);}
+    // Phase 2 — Full Investigation Report (Llama 3.1 70B)
+    setSlackAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,reportPhase:"report"}:a));
+    try{
+      const enriched=logCtx?`LOG ANALYSIS PRE-PROCESSOR (Llama 8B):\n${logCtx}\n\n---\n${formatAlertForAgent(alert)}`:formatAlertForAgent(alert);
+      const report=await callAgent("slackReport",[{role:"user",content:enriched}],()=>{},{system:SLACK_AGENT_SYS(alert)});
+      setSlackAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,reportLoading:false,reportPhase:null,agentReport:{text:report,logCtx,at:ts()}}:a));
+      if(s.slackNotify&&s.slackEnabled){
+        try{await fetch("/api/slack/notify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({alert,report})});}catch{}
+      }
     }catch(e){
-      setSlackAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,reportLoading:false}:a));
+      setSlackAlerts(prev=>prev.map(a=>a.id===alert.id?{...a,reportLoading:false,reportPhase:null}:a));
     }
   }
 
@@ -986,13 +1921,14 @@ export default function App(){
       es = new EventSource("/api/alerts/stream");
       es.onmessage = (ev) => {
         try {
-          const a = JSON.parse(ev.data);
-          if(a && a.id){
-            // add fields the UI expects
-            a.irId = a.irId || null;
-            a.agentReport = null;
-            a.reportLoading = false;
-            setSlackAlerts(prev => [a, ...prev].slice(0, 200));
+          const raw = JSON.parse(ev.data);
+          if(raw && raw.id){
+            const a = normalizeApiAlert(raw);
+            setSlackAlerts(prev => {
+              if(prev.some(x=>x.id===a.id))return prev;
+              const next=[a,...prev];
+              return next.length>500?next.slice(0,500):next;
+            });
             autoAnalyze(a);
           }
         } catch {}
@@ -1025,7 +1961,15 @@ export default function App(){
     }
   }
 
-  if(selected)return<AgentChat rule={selected} customRules={customRules} onBack={()=>setSelected(null)}/>;
+  function saveDoc(docData){
+    const doc={id:`DOC-${Date.now()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`,savedAt:new Date().toISOString(),...docData};
+    setSavedDocs(prev=>{const updated=[doc,...prev];dbSave(SK_DOCS,updated);return updated;});
+  }
+  function deleteDoc(id){
+    setSavedDocs(prev=>{const updated=prev.filter(d=>d.id!==id);dbSave(SK_DOCS,updated);return updated;});
+  }
+
+  if(selected)return<AgentChat rule={selected.rule} liveAlert={selected.liveAlert||null} customRules={customRules} onBack={()=>setSelected(null)} onSaveDoc={saveDoc}/>;
 
   const fl=filter.toLowerCase();
   const totalAll=Object.values(STATIC_REG).reduce((s,g)=>s+g.rules.length,0)+customRules.length;
@@ -1058,11 +2002,15 @@ export default function App(){
 
   const allStaticRules=Object.values(STATIC_REG).flatMap(g=>g.rules);
   const allLiveRules=Object.values(liveRuleGroups).flatMap(g=>g.rules||[]);
-  function openAlertAsRule(alert){
-    const rule=allStaticRules.find(r=>r.id===alert.ruleId)
+  function openAlertForInvestigation(alert){
+    const foundRule=allStaticRules.find(r=>r.id===alert.ruleId)
       || allLiveRules.find(r=>r.id===alert.ruleId || r.wazuhRuleId===alert.ruleId?.replace("WAZ-",""))
       || {id:alert.ruleId,name:alert.ruleName,file:"live_alert.json",tactic:alert.tactic,mitre:alert.mitre,severity:alert.severity,isCustom:false};
-    setSelected(rule);
+    setSelected({rule:foundRule,liveAlert:alert});
+  }
+  function handleInvestigate(alert){
+    openAlertForInvestigation(alert);
+    setInvestigated(prev=>new Set([...prev,alert.id]));
   }
 
   return(
@@ -1097,6 +2045,20 @@ export default function App(){
           💬 SLACK ALERTS
           {critAlerts>0&&<span style={{position:"absolute",top:6,right:6,background:"#ff4444",color:"#fff",borderRadius:"50%",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"0.58rem",fontWeight:700}}>{critAlerts}</span>}
         </button>
+        <button onClick={()=>setNav("agent")} style={{background:"none",border:"none",borderBottom:nav==="agent"?"2px solid #a855f7":"2px solid transparent",color:nav==="agent"?"#a855f7":"#475569",padding:"10px 18px",cursor:"pointer",fontSize:"0.75rem",fontFamily:"monospace",fontWeight:nav==="agent"?700:400,transition:"all 0.15s",position:"relative",whiteSpace:"nowrap"}}>
+          🔬 AGENT INVESTIGATIONS
+          {slackAlerts.filter(a=>!investigated.has(a.id)&&HIGH_PLUS.has(a.severity)).length>0&&<span style={{position:"absolute",top:6,right:6,background:"#a855f7",color:"#fff",borderRadius:"50%",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"0.58rem",fontWeight:700}}>{slackAlerts.filter(a=>!investigated.has(a.id)&&HIGH_PLUS.has(a.severity)).length}</span>}
+        </button>
+        <button onClick={()=>setNav("documents")} style={{background:"none",border:"none",borderBottom:nav==="documents"?"2px solid #22c55e":"2px solid transparent",color:nav==="documents"?"#22c55e":"#475569",padding:"10px 18px",cursor:"pointer",fontSize:"0.75rem",fontFamily:"monospace",fontWeight:nav==="documents"?700:400,transition:"all 0.15s",position:"relative",whiteSpace:"nowrap"}}>
+          📁 DOCUMENTS
+          {savedDocs.length>0&&<span style={{position:"absolute",top:6,right:6,background:"#22c55e",color:"#020817",borderRadius:"50%",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"0.58rem",fontWeight:700}}>{savedDocs.length}</span>}
+        </button>
+        <button onClick={()=>setNav("geointel")} style={{background:"none",border:"none",borderBottom:nav==="geointel"?"2px solid #0ea5e9":"2px solid transparent",color:nav==="geointel"?"#0ea5e9":"#475569",padding:"10px 18px",cursor:"pointer",fontSize:"0.75rem",fontFamily:"monospace",fontWeight:nav==="geointel"?700:400,transition:"all 0.15s",whiteSpace:"nowrap"}}>
+          🌍 GEO INTEL
+        </button>
+        <button onClick={()=>setNav("tormon")} style={{background:"none",border:"none",borderBottom:nav==="tormon"?"2px solid #00ff8c":"2px solid transparent",color:nav==="tormon"?"#00ff8c":"#475569",padding:"10px 18px",cursor:"pointer",fontSize:"0.75rem",fontFamily:"monospace",fontWeight:nav==="tormon"?700:400,transition:"all 0.15s",whiteSpace:"nowrap"}}>
+          ⬡ TOR MONITOR
+        </button>
         <div style={{flex:1}}/>
         {nav==="registry"&&<>
           <input value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Search rules..." style={{background:"#0a1628",border:"1px solid #1e293b",borderRadius:6,color:"#94a3b8",padding:"5px 12px",fontSize:"0.72rem",fontFamily:"monospace",outline:"none",width:280,marginRight:10}}/>
@@ -1110,7 +2072,19 @@ export default function App(){
       </div>
 
       {/* ── SLACK ALERTS VIEW ── */}
-      {nav==="slack"&&<SlackHub alerts={slackAlerts} setAlerts={setSlackAlerts} onOpenFull={openAlertAsRule} settings={settings} setSettings={setSettings}/>}
+      {nav==="slack"&&<SlackHub alerts={slackAlerts} setAlerts={setSlackAlerts} onOpenFull={openAlertForInvestigation} onInvestigate={handleInvestigate} settings={settings} setSettings={setSettings} customRules={customRules} onSaveDoc={saveDoc}/>}
+
+      {/* ── AGENT INVESTIGATIONS VIEW ── */}
+      {nav==="agent"&&<InvestigationsTab alerts={slackAlerts} customRules={customRules} onInvestigate={handleInvestigate} investigated={investigated}/>}
+
+      {/* ── DOCUMENTS VIEW ── */}
+      {nav==="documents"&&<DocumentsTab docs={savedDocs} onDelete={deleteDoc}/>}
+
+      {/* ── GEO INTEL VIEW ── */}
+      {nav==="geointel"&&<GeoIntel />}
+
+      {/* ── TOR MONITOR VIEW ── */}
+      {nav==="tormon"&&<TorMonitor />}
 
       {/* ── REGISTRY VIEW ── */}
       {nav==="registry"&&(
@@ -1132,7 +2106,7 @@ export default function App(){
                   <div style={{display:"grid",gridTemplateColumns:"100px 1fr 145px 100px 100px",gap:10,padding:"5px 16px",background:"#0a1628",borderBottom:"1px solid #0f172a"}}>
                     {["RULE ID","DETECTION / FILE","TACTIC","MITRE","SEVERITY"].map((h,i)=><div key={i} style={{color:"#334155",fontSize:"0.61rem",fontFamily:"monospace",letterSpacing:1}}>{h}</div>)}
                   </div>
-                  {filt.map(rule=><RuleRow key={rule.id} rule={rule} gc={group.color} onSelect={setSelected} onDelete={rule.isCustom?handleDelete:null}/>)}
+                  {filt.map(rule=><RuleRow key={rule.id} rule={rule} gc={group.color} onSelect={r=>setSelected({rule:r,liveAlert:null})} onDelete={rule.isCustom?handleDelete:null} customRules={customRules}/>)}
                 </>}
               </div>
             );
