@@ -1470,12 +1470,15 @@ function RuleRow({rule,gc,onSelect,onDelete,customRules}){
   const[h,setH]=useState(false);
   const[showInv,setShowInv]=useState(false);
   const[triggered,setTriggered]=useState(false);
+  const[triggerOut,setTriggerOut]=useState(null);
   async function triggerAlert(){
-    setTriggered(true);
+    setTriggered(true); setTriggerOut(null);
     try {
-      await fetch("/api/alerts/inject",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ruleId:rule.id,ruleName:rule.name,severity:rule.severity,tactic:rule.tactic,mitre:rule.mitre})});
-      setTimeout(()=>setTriggered(false),2000);
-    } catch { setTriggered(false); }
+      const r=await fetch("/api/rule/trigger",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ruleId:rule.id,ruleName:rule.name,file:rule.file,tactic:rule.tactic,mitre:rule.mitre,severity:rule.severity})});
+      const j=await r.json();
+      if(j.cmd) setTriggerOut(`⚡ ${j.cmd}\n${j.stdout||""}${j.stderr?"\n⚠ "+j.stderr:""}`);
+      setTimeout(()=>setTriggered(false),3000);
+    } catch(e){setTriggerOut("⚠ Error: "+e.message);setTimeout(()=>setTriggered(false),3000);}
   }
   return(
     <div>
@@ -1501,6 +1504,11 @@ function RuleRow({rule,gc,onSelect,onDelete,customRules}){
       {showInv&&(
         <div style={{padding:"0 16px 14px 16px",background:"#0a1628",borderBottom:"1px solid #0f172a"}}>
           <InlineAgentChat rule={rule} liveAlert={null} customRules={customRules||[]} gc={gc}/>
+        </div>
+      )}
+      {triggerOut&&(
+        <div style={{padding:"4px 16px 8px 16px",background:"#0a1628",borderBottom:"1px solid #0f172a"}}>
+          <pre style={{background:"#060d1a",border:"1px solid #ff444433",borderRadius:5,padding:"6px 10px",color:"#e2e8f0",fontSize:"0.62rem",fontFamily:"monospace",whiteSpace:"pre-wrap",wordBreak:"break-all",margin:0,maxHeight:120,overflow:"auto"}}>{triggerOut}</pre>
         </div>
       )}
     </div>
@@ -2137,7 +2145,7 @@ export default function App(){
                   <div style={{fontFamily:"'Oxanium',monospace",fontWeight:700,color:group.color,fontSize:"0.78rem",letterSpacing:1}}>{group.label}</div>
                   <span style={{background:group.color+"20",border:`1px solid ${group.color}44`,color:group.color,padding:"1px 7px",borderRadius:3,fontSize:"0.61rem",fontFamily:"monospace"}}>{filt.length} rules</span>
                   {group.isCustomGroup&&<><span style={{color:"#22c55e",fontSize:"0.61rem",fontFamily:"monospace"}}>● PERSISTED</span>{filt.filter(r=>r.playbook).length>0&&<span style={{color:"#f97316",fontSize:"0.61rem",fontFamily:"monospace"}}>🚨 {filt.filter(r=>r.playbook).length} with IR</span>}</>}
-                  <button onClick={e=>{e.stopPropagation();filt.forEach(r=>{fetch("/api/alerts/inject",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ruleId:r.id,ruleName:r.name,severity:r.severity,tactic:r.tactic,mitre:r.mitre})}).catch(()=>{});});const t=e.target;const ot=t.textContent;t.textContent="✓ "+filt.length+" sent";t.style.background="rgba(34,197,94,0.2)";t.style.borderColor="#22c55e";t.style.color="#22c55e";setTimeout(()=>{t.textContent=ot;t.style.background="rgba(255,68,68,0.1)";t.style.borderColor="rgba(255,68,68,0.3)";t.style.color="#ff6060";},2000);}} title="Trigger all rules as alerts" style={{background:"rgba(255,68,68,0.1)",border:"1px solid rgba(255,68,68,0.3)",color:"#ff6060",borderRadius:4,padding:"3px 10px",fontSize:"0.63rem",cursor:"pointer",fontFamily:"monospace",marginLeft:"auto"}} onMouseEnter={e=>{e.target.style.background="rgba(255,68,68,0.2)";e.target.style.borderColor="#ff6060"}} onMouseLeave={e=>{e.target.style.background="rgba(255,68,68,0.1)";e.target.style.borderColor="rgba(255,68,68,0.3)"}}>🚨 ALL</button>
+                  <button onClick={e=>{e.stopPropagation();const t=e.target;const ot=t.textContent;t.textContent="⏳ triggering...";t.style.background="rgba(255,165,0,0.2)";t.style.borderColor="#ffa500";t.style.color="#ffa500";let done=0;const total=filt.length;filt.forEach(r=>{fetch("/api/rule/trigger",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ruleId:r.id,ruleName:r.name,file:r.file,tactic:r.tactic,mitre:r.mitre,severity:r.severity})}).catch(()=>{}).finally(()=>{done++;if(done===total){t.textContent="✓ "+total+" triggered";t.style.background="rgba(34,197,94,0.2)";t.style.borderColor="#22c55e";t.style.color="#22c55e";setTimeout(()=>{t.textContent=ot;t.style.background="rgba(255,68,68,0.1)";t.style.borderColor="rgba(255,68,68,0.3)";t.style.color="#ff6060";},3000);}});});}} title="Trigger all rules — AI generates + executes test commands" style={{background:"rgba(255,68,68,0.1)",border:"1px solid rgba(255,68,68,0.3)",color:"#ff6060",borderRadius:4,padding:"3px 10px",fontSize:"0.63rem",cursor:"pointer",fontFamily:"monospace",marginLeft:"auto"}} onMouseEnter={e=>{e.target.style.background="rgba(255,68,68,0.2)";e.target.style.borderColor="#ff6060"}} onMouseLeave={e=>{e.target.style.background="rgba(255,68,68,0.1)";e.target.style.borderColor="rgba(255,68,68,0.3)"}}>🚨 ALL</button>
                   <span style={{color:"#334155",fontSize:"0.68rem"}}>{isOpen?"▲":"▼"}</span>
                 </div>
                 {isOpen&&<>

@@ -1529,6 +1529,76 @@ app.delete("/api/rules/custom/:fileBase", async (req, res) => {
   res.json({ ok: true, removed });
 });
 
+// ─── Rule trigger: AI generates + executes a test command to fire the real detection ──
+function execCmd(cmd, opts = {}) {
+  return new Promise((resolve) => {
+    require("child_process").exec(cmd, { timeout: 15000, shell: "/bin/bash", cwd: "/tmp", ...opts }, (err, stdout, stderr) => {
+      resolve({ stdout: stdout || "", stderr: stderr || (err ? err.message : "") });
+    });
+  });
+}
+
+app.post("/api/rule/trigger", async (req, res) => {
+  const { ruleId, ruleName, file, tactic, mitre, severity } = req.body || {};
+  if (!ruleId) return res.status(400).json({ error: "ruleId required" });
+
+  try {
+    // 1. Search for the rule file on disk
+    const searchDirs = [RULES_LOCAL_ROOT, CUSTOM_RULES_DIR, WAZUH_RULES_DIR];
+    let ruleContent = "";
+    let foundPath = "";
+    if (file) {
+      for (const dir of searchDirs) {
+        const fp = path.join(dir, file);
+        if (fs.existsSync(fp)) { foundPath = fp; break; }
+        // Search recursively by filename
+        const all = await walk(dir);
+        const m = all.find(f => f.endsWith("/" + file) || f.endsWith("\\" + file));
+        if (m) { foundPath = m; break; }
+      }
+      if (foundPath) {
+        ruleContent = await fsp.readFile(foundPath, "utf-8");
+        ruleContent = ruleContent.slice(0, 3000); // keep context manageable
+      }
+    }
+
+    // 2. AI generates a test command based on the rule
+    const sysPrompt = "You are an adversary emulation engine. Given a SOC detection rule, generate a SINGLE realistic but safe bash command that would trigger this rule in Wazuh. "
+      + "Use: logger (for log-based rules), curl/wget (for web rules), nc/ssh (for network rules), or similar. "
+      + "Return ONLY the raw command — no markdown, no backticks, no explanation. The command must be a single line.";
+
+    const userMsg = `Generate a test trigger command for this rule:\nID: ${ruleId}\nName: ${ruleName}\nFile: ${file || "—"}\nTactic: ${tactic || "—"}\nMITRE: ${mitre || "—"}\nSeverity: ${severity || "—"}\n\nRule content:\n${ruleContent || "(not found on disk)"}`;
+
+    const cmd = (await callAi({ system: sysPrompt, messages: [{ role: "user", content: userMsg }], max_tokens: 500 }))
+      .replace(/```(?:bash|sh)?\n?/gi, "").trim().split("\n")[0];
+
+    if (!cmd || cmd.length < 3) throw new Error("AI did not generate a valid command");
+
+    // 3. Execute the command (timeboxed, sandboxed)
+    const execResult = await execCmd(cmd);
+
+    // 4. Also inject an alert so it appears immediately in OPXDR
+    const sevOrder = { LOW: 1, MEDIUM: 5, HIGH: 8, CRITICAL: 12 };
+    const lvl = sevOrder[severity] || 8;
+    const ts = new Date().toISOString();
+    const uid = `TRG-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    const alert = {
+      id: uid, ruleId, ruleName: ruleName || ruleId, severity: severity || "HIGH", level: lvl,
+      tactic: tactic || "—", mitre: mitre || "—", time: ts, srcIp: "—", dstIp: "—",
+      account: "—", host: "trigger", agentId: "—", location: "rule_trigger",
+      fullLog: `[trigger] ${cmd}`, decoder: "rule_trigger", iocs: [],
+      groups: ["rule_trigger"], injected: true, raw: { ruleId, ruleName, cmd },
+    };
+    injectedAlerts.push(alert);
+    if (injectedAlerts.length > 500) injectedAlerts.shift();
+    alertEmitter.emit("alert", alert);
+
+    res.json({ ok: true, id: uid, cmd, stdout: execResult.stdout?.slice(0, 1000), stderr: execResult.stderr?.slice(0, 500) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/wazuh/restart
 app.post("/api/wazuh/restart", async (_req, res) => {
   try { res.json(await restartWazuh()); }
