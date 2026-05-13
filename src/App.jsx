@@ -1469,9 +1469,17 @@ function RuleWriter({onSave,onClose,existing}){
 function RuleRow({rule,gc,onSelect,onDelete,customRules}){
   const[h,setH]=useState(false);
   const[showInv,setShowInv]=useState(false);
+  const[triggered,setTriggered]=useState(false);
+  async function triggerAlert(){
+    setTriggered(true);
+    try {
+      await fetch("/api/alerts/inject",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ruleId:rule.id,ruleName:rule.name,severity:rule.severity,tactic:rule.tactic,mitre:rule.mitre})});
+      setTimeout(()=>setTriggered(false),2000);
+    } catch { setTriggered(false); }
+  }
   return(
     <div>
-      <div onMouseEnter={()=>setH(true)} onMouseLeave={()=>setH(false)} style={{display:"grid",gridTemplateColumns:"100px 1fr 145px 100px 115px",alignItems:"center",gap:10,padding:"8px 16px",background:h||showInv?"#0a1628":"transparent",borderBottom:showInv?"none":"1px solid #0f172a",transition:"background 0.1s"}}>
+      <div onMouseEnter={()=>setH(true)} onMouseLeave={()=>setH(false)} style={{display:"grid",gridTemplateColumns:"100px 1fr 145px 100px 130px",alignItems:"center",gap:10,padding:"8px 16px",background:h||showInv?"#0a1628":"transparent",borderBottom:showInv?"none":"1px solid #0f172a",transition:"background 0.1s"}}>
         <code style={{color:gc,fontSize:"0.69rem",fontFamily:"monospace",cursor:"pointer"}} onClick={()=>onSelect(rule)}>{rule.id}</code>
         <div onClick={()=>onSelect(rule)} style={{cursor:"pointer"}}>
           <div style={{color:"#e2e8f0",fontSize:"0.75rem",fontFamily:"'Oxanium',monospace",display:"flex",alignItems:"center",gap:5}}>
@@ -1485,6 +1493,7 @@ function RuleRow({rule,gc,onSelect,onDelete,customRules}){
         <code style={{color:"#334155",fontSize:"0.65rem",cursor:"pointer"}} onClick={()=>onSelect(rule)}>{rule.mitre.split(",")[0]}{rule.mitre.includes(",")?"…":""}</code>
         <div style={{display:"flex",gap:4,alignItems:"center",justifyContent:"flex-end"}}>
           <SB l={rule.severity}/>
+          <button onClick={e=>{e.stopPropagation();triggerAlert();}} title="Trigger as alert in Slack Alerts" style={{background:triggered?"#22c55e30":"none",border:`1px solid ${triggered?"#22c55e55":"#ff444433"}`,color:triggered?"#22c55e":"#ff6060",borderRadius:4,padding:"2px 7px",fontSize:"0.65rem",cursor:"pointer",fontFamily:"monospace",transition:"all 0.15s"}} onMouseEnter={e=>{if(!triggered){e.target.style.borderColor="#ff444477";e.target.style.color="#ff4444";}}} onMouseLeave={e=>{if(!triggered){e.target.style.borderColor="#ff444433";e.target.style.color="#ff6060";}}}>{triggered?"✓":"🚨"}</button>
           <button onClick={e=>{e.stopPropagation();setShowInv(v=>!v);}} title={showInv?"Close investigation":"Inline investigation"} style={{background:showInv?"#a855f730":"none",border:`1px solid ${showInv?"#a855f755":"#1e293b"}`,color:showInv?"#a855f7":"#475569",borderRadius:4,padding:"2px 7px",fontSize:"0.65rem",cursor:"pointer",fontFamily:"monospace",transition:"all 0.15s"}} onMouseEnter={e=>{if(!showInv){e.target.style.borderColor="#a855f755";e.target.style.color="#a855f7";}}} onMouseLeave={e=>{if(!showInv){e.target.style.borderColor="#1e293b";e.target.style.color="#475569";}}}>🔬</button>
           {rule.isCustom&&onDelete&&<button onClick={e=>{e.stopPropagation();onDelete(rule.id);}} style={{background:"none",border:"1px solid #ff444433",color:"#ff6060",borderRadius:4,padding:"1px 5px",fontSize:"0.61rem",cursor:"pointer",fontFamily:"monospace",opacity:0.5}} onMouseEnter={e=>e.target.style.opacity="1"} onMouseLeave={e=>e.target.style.opacity="0.5"}>✕</button>}
         </div>
@@ -2115,7 +2124,7 @@ export default function App(){
       {nav==="tormon"&&<TorMonitor />}
 
       {/* ── REGISTRY VIEW ── */}
-      {nav==="registry"&&(
+          {nav==="registry"&&(
         <div style={{padding:"14px 24px",display:"flex",flexDirection:"column",gap:10}}>
           {Object.entries(fullReg).map(([key,group])=>{
             const filt=filter?group.rules.filter(r=>r.name.toLowerCase().includes(fl)||r.file.toLowerCase().includes(fl)||r.tactic.toLowerCase().includes(fl)||r.mitre.toLowerCase().includes(fl)||r.id.toLowerCase().includes(fl)||(r.severity||"").toLowerCase().includes(fl)):group.rules;
@@ -2128,7 +2137,8 @@ export default function App(){
                   <div style={{fontFamily:"'Oxanium',monospace",fontWeight:700,color:group.color,fontSize:"0.78rem",letterSpacing:1}}>{group.label}</div>
                   <span style={{background:group.color+"20",border:`1px solid ${group.color}44`,color:group.color,padding:"1px 7px",borderRadius:3,fontSize:"0.61rem",fontFamily:"monospace"}}>{filt.length} rules</span>
                   {group.isCustomGroup&&<><span style={{color:"#22c55e",fontSize:"0.61rem",fontFamily:"monospace"}}>● PERSISTED</span>{filt.filter(r=>r.playbook).length>0&&<span style={{color:"#f97316",fontSize:"0.61rem",fontFamily:"monospace"}}>🚨 {filt.filter(r=>r.playbook).length} with IR</span>}</>}
-                  <span style={{marginLeft:"auto",color:"#334155",fontSize:"0.68rem"}}>{isOpen?"▲":"▼"}</span>
+                  <button onClick={e=>{e.stopPropagation();filt.forEach(r=>{fetch("/api/alerts/inject",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ruleId:r.id,ruleName:r.name,severity:r.severity,tactic:r.tactic,mitre:r.mitre})}).catch(()=>{});});const t=e.target;const ot=t.textContent;t.textContent="✓ "+filt.length+" sent";t.style.background="rgba(34,197,94,0.2)";t.style.borderColor="#22c55e";t.style.color="#22c55e";setTimeout(()=>{t.textContent=ot;t.style.background="rgba(255,68,68,0.1)";t.style.borderColor="rgba(255,68,68,0.3)";t.style.color="#ff6060";},2000);}} title="Trigger all rules as alerts" style={{background:"rgba(255,68,68,0.1)",border:"1px solid rgba(255,68,68,0.3)",color:"#ff6060",borderRadius:4,padding:"3px 10px",fontSize:"0.63rem",cursor:"pointer",fontFamily:"monospace",marginLeft:"auto"}} onMouseEnter={e=>{e.target.style.background="rgba(255,68,68,0.2)";e.target.style.borderColor="#ff6060"}} onMouseLeave={e=>{e.target.style.background="rgba(255,68,68,0.1)";e.target.style.borderColor="rgba(255,68,68,0.3)"}}>🚨 ALL</button>
+                  <span style={{color:"#334155",fontSize:"0.68rem"}}>{isOpen?"▲":"▼"}</span>
                 </div>
                 {isOpen&&<>
                   <div style={{display:"grid",gridTemplateColumns:"100px 1fr 145px 100px 100px",gap:10,padding:"5px 16px",background:"#0a1628",borderBottom:"1px solid #0f172a"}}>
