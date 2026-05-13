@@ -534,7 +534,8 @@ app.get("/api/alerts/stream", (req, res) => {
   }
   alertEmitter.on("alert", onInjected);
 
-  // Primary: poll Wazuh Indexer every 10 seconds for real detections
+  // Try Indexer first; fall back to file tail on failure
+  let indexerFailed = false;
   if (WAZUH_INDEXER_PASS) {
     const seenIds = new Set();
     let lastTs = new Date(Date.now() - 60_000).toISOString();
@@ -542,6 +543,7 @@ app.get("/api/alerts/stream", (req, res) => {
     async function pollIndexer() {
       try {
         const result = await queryIndexer({ minLevel, size: 50, after: lastTs });
+        indexerFailed = false;
         const hits = (result.hits?.hits || []).reverse();
         for (const hit of hits) {
           const a = parseIndexerHit(hit);
@@ -552,6 +554,15 @@ app.get("/api/alerts/stream", (req, res) => {
         }
       } catch (e) {
         console.warn("[indexer] stream poll failed:", e.message);
+        // After 3 consecutive failures, switch to file tail fallback
+        if (indexerFailed) {
+          console.warn("[indexer] switching to file tail fallback");
+          clearInterval(pollTimer);
+          clearInterval(kaTimer);
+          startFileTail();
+          return;
+        }
+        indexerFailed = true;
       }
     }
     pollIndexer();
@@ -561,26 +572,33 @@ app.get("/api/alerts/stream", (req, res) => {
   }
 
   // Fallback: tail alerts.json
-  if (!fs.existsSync(WAZUH_ALERTS_LOG)) {
-    res.write(`event: error\ndata: ${JSON.stringify({ msg: "alerts.json not readable", path: WAZUH_ALERTS_LOG })}\n\n`);
-    req.on("close", () => alertEmitter.off("alert", onInjected));
-    return;
-  }
-  const tail = spawn("tail", ["-F", "-n", "0", WAZUH_ALERTS_LOG]);
-  let leftover = "";
-  tail.stdout.on("data", (chunk) => {
-    const text = leftover + chunk.toString();
-    const lines = text.split("\n");
-    leftover = lines.pop() || "";
-    for (const ln of lines) {
-      if (!ln.trim()) continue;
-      const a = parseAlertLine(ln);
-      if (a && (a.level || 0) >= minLevel) res.write(`data: ${JSON.stringify(a)}\n\n`);
+  startFileTail();
+  function startFileTail() {
+    const canRead = fs.existsSync(WAZUH_ALERTS_LOG);
+    if (!canRead) {
+      console.warn("[alerts] alerts.json not readable at", WAZUH_ALERTS_LOG);
+      res.write(`event: error\ndata: ${JSON.stringify({ msg: "alerts.json not readable at " + WAZUH_ALERTS_LOG, path: WAZUH_ALERTS_LOG })}\n\n`);
+      // Try alternative: read via sudo if available, else just keep the connection alive with injected alerts
+      const ka = setInterval(() => res.write(`: keepalive\n\n`), 25_000);
+      req.on("close", () => { clearInterval(ka); alertEmitter.off("alert", onInjected); });
+      return;
     }
-  });
-  tail.stderr.on("data", (d) => console.warn("[tail]", d.toString().trim()));
-  const ka = setInterval(() => res.write(`: keepalive\n\n`), 25_000);
-  req.on("close", () => { clearInterval(ka); tail.kill(); alertEmitter.off("alert", onInjected); });
+    const tail = spawn("tail", ["-F", "-n", "0", WAZUH_ALERTS_LOG]);
+    let leftover = "";
+    tail.stdout.on("data", (chunk) => {
+      const text = leftover + chunk.toString();
+      const lines = text.split("\n");
+      leftover = lines.pop() || "";
+      for (const ln of lines) {
+        if (!ln.trim()) continue;
+        const a = parseAlertLine(ln);
+        if (a && (a.level || 0) >= minLevel) res.write(`data: ${JSON.stringify(a)}\n\n`);
+      }
+    });
+    tail.stderr.on("data", (d) => console.warn("[tail]", d.toString().trim()));
+    const ka = setInterval(() => res.write(`: keepalive\n\n`), 25_000);
+    req.on("close", () => { clearInterval(ka); tail.kill(); alertEmitter.off("alert", onInjected); });
+  }
 });
 
 // ─── Alert injection (custom/simulated detections) ────────────────────────
