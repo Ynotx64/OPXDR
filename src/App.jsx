@@ -1658,8 +1658,9 @@ function DocumentsTab({docs,onDelete}){
   const typeIcon=t=>t==="investigation"?"🔬":"📊";
 
   function exportText(doc){
-    if(doc.type==="investigation")
+    if(doc.type==="investigation"&&doc.messages)
       return(doc.messages||[]).filter(m=>m.role==="assistant").map(m=>m.content).join("\n\n---\n\n");
+    if(doc.agentResult) return doc.agentResult;
     return doc.report||"";
   }
 
@@ -1794,6 +1795,11 @@ function DocumentsTab({docs,onDelete}){
                   ))}
                 </div>
               )}
+              {viewDoc.type==="investigation"&&!viewDoc.messages&&viewDoc.agentResult&&(
+                <div style={{background:"#060d1a",border:"1px solid #a855f722",borderRadius:8,padding:"14px 16px"}}>
+                  <MD text={viewDoc.agentResult} color="#a855f7"/>
+                </div>
+              )}
               {viewDoc.type==="report"&&(
                 <div style={{background:"#060d1a",border:"1px solid #38bdf833",borderRadius:8,padding:"14px 16px"}}>
                   <MD text={viewDoc.report||""} color="#38bdf8"/>
@@ -1839,7 +1845,19 @@ export default function App(){
 
   // Load persisted custom rules from localStorage
   useEffect(()=>{dbLoad(SK_RULES).then(r=>{if(r)setCustomRules(r);});const t=setInterval(()=>setTime(new Date()),1000);return()=>clearInterval(t);},[]);
-  useEffect(()=>{dbLoad(SK_DOCS).then(d=>{if(d)setSavedDocs(d);});},[]);
+  useEffect(()=>{
+    dbLoad(SK_DOCS).then(d=>{if(d)setSavedDocs(d);});
+    fetch("/api/investigations").then(r=>r.json()).then(geoDocs=>{
+      if(geoDocs&&geoDocs.length){
+        setSavedDocs(prev=>{
+          const existing=new Set(prev.map(d=>d.id));
+          const merged=[...geoDocs.filter(d=>!existing.has(d.id)),...prev];
+          dbSave(SK_DOCS,merged);
+          return merged;
+        });
+      }
+    }).catch(()=>{});
+  },[]);
 
   // Pull AI/Slack capability flags from backend on mount
   useEffect(()=>{
@@ -1964,6 +1982,7 @@ export default function App(){
   function saveDoc(docData){
     const doc={id:`DOC-${Date.now()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`,savedAt:new Date().toISOString(),...docData};
     setSavedDocs(prev=>{const updated=[doc,...prev];dbSave(SK_DOCS,updated);return updated;});
+    fetch("/api/investigations",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(doc)}).catch(()=>{});
   }
   function deleteDoc(id){
     setSavedDocs(prev=>{const updated=prev.filter(d=>d.id!==id);dbSave(SK_DOCS,updated);return updated;});

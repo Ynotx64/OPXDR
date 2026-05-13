@@ -385,7 +385,7 @@ function parseAlertLine(line) {
 
 // Minimum Wazuh level to surface in the live feed (12 = HIGH, 15 = CRITICAL only).
 // Override via ALERT_MIN_LEVEL in .env or ?min_level= query param.
-const ALERT_MIN_LEVEL = parseInt(process.env.ALERT_MIN_LEVEL || "12", 10);
+const ALERT_MIN_LEVEL = parseInt(process.env.ALERT_MIN_LEVEL || "1", 10);
 
 // ─── Injected alerts (POST /api/alerts/inject) ────────────────────────────
 const alertEmitter = new EventEmitter();
@@ -1162,6 +1162,46 @@ async function callAgentFallback(agentType, messages, res) {
     }
   }
 }
+
+// ─── Investigation persistence (shared between geo.html and OPXDR app) ──────
+const INVESTIGATIONS_FILE = path.join(__dirname, "data", "investigations.json");
+async function loadInvestigations() {
+  try {
+    const d = await fsp.readFile(INVESTIGATIONS_FILE, "utf-8");
+    return JSON.parse(d);
+  } catch { return []; }
+}
+async function saveInvestigation(item) {
+  const dir = path.dirname(INVESTIGATIONS_FILE);
+  await fsp.mkdir(dir, { recursive: true });
+  const list = await loadInvestigations();
+  list.unshift(item);
+  if (list.length > 200) list.length = 200;
+  await fsp.writeFile(INVESTIGATIONS_FILE, JSON.stringify(list, null, 2));
+}
+
+// GET /api/investigations — return all saved investigations
+app.get("/api/investigations", async (req, res) => {
+  const list = await loadInvestigations();
+  res.json(list);
+});
+
+// POST /api/investigations — save a new investigation
+app.post("/api/investigations", async (req, res) => {
+  const { type, title, entry, agentResult, status } = req.body || {};
+  if (!type || !entry) return res.status(400).json({ error: "type and entry required" });
+  const item = {
+    id: `GEO-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+    savedAt: new Date().toISOString(),
+    type: type || "investigation",
+    title: title || `GeoIntel Investigation`,
+    entry,
+    agentResult: agentResult || null,
+    status: status || "completed",
+  };
+  await saveInvestigation(item);
+  res.json(item);
+});
 
 // /api/agent — main entry point for all SOC agents (investigate, logAnalysis, slackReport, etc.)
 app.post("/api/agent", async (req, res) => {

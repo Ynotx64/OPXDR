@@ -1748,14 +1748,40 @@ async function runInvestigation(id){
     const e = inv.entry;
     const sys = "You are a SOC analyst. Investigate this cyber threat event and produce: TRIAGE, ATTACK VECTOR, CONTAINMENT, IOCs, and RECOMMENDATION.";
     const msgs = [{ role: "user", content: "Investigate: type="+(e.type||"")+" severity="+(e.severity||"")+" srcIP="+(e.srcIP||"")+" dst="+(e.dstCountry||"")+":"+(e.dstPort||"")+" cve="+(e.cve||"")+" malware="+(e.malware||"")+" actor="+(e.actor||"")+" ioc="+(e.ioc||"") }];
-    const res = await fetch("/api/claude", {
+    const res = await fetch("/api/agent", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ system: sys, messages: msgs })
+      body: JSON.stringify({ agentType: "investigate", messages: [{ role: "system", content: sys }, ...msgs], stream: true })
     });
     if(!res.ok) throw new Error("Agent API error: "+res.status);
-    const data = await res.json();
-    inv.agentResult = data.content?.[0]?.text || data.response || JSON.stringify(data);
-    inv.status = "completed";
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let full = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      for (const ln of dec.decode(value).split("\n")) {
+        if (!ln.startsWith("data:")) continue;
+        const d = ln.slice(5).trim();
+        if (d === "[DONE]") continue;
+        try {
+          const j = JSON.parse(d);
+          const t1 = j.choices?.[0]?.delta?.content ?? "";
+          const t2 = (j.type === "content_block_delta" && j.delta?.text) ? j.delta.text : "";
+          const chunk = t1 || t2;
+          if (chunk) { full += chunk; inv.agentResult = full; renderInvestigations(); }
+        } catch {}
+      }
+    }
+    inv.status = full ? "completed" : "error";
+    if(!full) inv.agentResult = "[Agent returned empty response]";
+    // Save to backend for OPXDR app
+    try {
+      await fetch("/api/investigations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "investigation", title: e.type+" — "+e.srcIP, entry: e, agentResult: inv.agentResult, status: inv.status })
+      });
+    } catch {}
   } catch(e){
     inv.agentResult = "[Agent error: "+e.message+"]";
     inv.status = "error";
