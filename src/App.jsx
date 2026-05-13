@@ -1651,7 +1651,7 @@ function DocumentsTab({docs,onDelete}){
 
   const filtered=[...docs]
     .filter(d=>typeFilter==="all"||d.type===typeFilter)
-    .filter(d=>!sq||(d.title||"").toLowerCase().includes(sq)||(d.alert?.ruleName||"").toLowerCase().includes(sq)||(d.alert?.srcIp||"").toLowerCase().includes(sq))
+    .filter(d=>!sq||(d.title||"").toLowerCase().includes(sq)||(d.alert?.ruleName||"").toLowerCase().includes(sq)||(d.alert?.srcIp||"").toLowerCase().includes(sq)||(d.entry?.srcIP||"").toLowerCase().includes(sq))
     .sort((a,b)=>new Date(b.savedAt)-new Date(a.savedAt));
 
   const typeColor=t=>t==="investigation"?"#a855f7":"#38bdf8";
@@ -1726,6 +1726,15 @@ function DocumentsTab({docs,onDelete}){
                         {doc.alert.tactic&&<TB t={doc.alert.tactic}/>}
                         {doc.alert.host&&doc.alert.host!=="—"&&<code style={{color:"#38bdf8",fontSize:"0.62rem",fontFamily:"monospace"}}>host:{doc.alert.host}</code>}
                         {doc.alert.srcIp&&doc.alert.srcIp!=="—"&&<code style={{color:"#f97316",fontSize:"0.62rem",fontFamily:"monospace"}}>src:{doc.alert.srcIp}</code>}
+                      </div>
+                    )}
+                    {doc.entry&&(
+                      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                        <code style={{color:"#334155",fontSize:"0.63rem",fontFamily:"monospace"}}>{doc.entry.type||""}</code>
+                        {doc.entry.severity&&<SB l={doc.entry.severity}/>}
+                        {doc.entry.srcIP&&<code style={{color:"#f97316",fontSize:"0.62rem",fontFamily:"monospace"}}>src:{doc.entry.srcIP}</code>}
+                        {doc.entry.dstCountry&&<code style={{color:"#22c55e",fontSize:"0.62rem",fontFamily:"monospace"}}>dst:{doc.entry.dstCountry}</code>}
+                        {doc.entry.cve&&doc.entry.cve!=="—"&&<code style={{color:"#fbbf24",fontSize:"0.62rem",fontFamily:"monospace"}}>cve:{doc.entry.cve}</code>}
                       </div>
                     )}
                   </div>
