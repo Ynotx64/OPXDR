@@ -1,0 +1,60 @@
+<group name="opxdr,opxdr_siem,telemetry,">
+  <rule id="209300" level="3">
+    <match>OPXDR_SIEM_TELEMETRY</match>
+    <description>OPXDR SIEM agent telemetry heartbeat</description>
+    <group>opxdr_siem,inventory,heartbeat,</group>
+    <mitre>
+      <id>T1082</id>
+    </mitre>
+  </rule>
+
+  <rule id="209301" level="5">
+    <if_sid>209300</if_sid>
+    <match>kind=startup</match>
+    <description>OPXDR SIEM agent startup telemetry received</description>
+    <group>opxdr_siem,inventory,startup,</group>
+    <mitre>
+      <id>T1082</id>
+    </mitre>
+  </rule>
+
+  <rule id="209302" level="6">
+    <if_sid>209300</if_sid>
+    <regex>listeners=[1-9][0-9]*</regex>
+    <description>OPXDR SIEM agent active network services detected</description>
+    <group>opxdr_siem,network,services,</group>
+    <mitre>
+      <id>T1049</id>
+    </mitre>
+  </rule>
+
+  <rule id="209303" level="7">
+    <if_sid>209300</if_sid>
+    <regex>auth_events=[1-9][0-9]*</regex>
+    <description>OPXDR SIEM agent authentication telemetry detected</description>
+    <group>opxdr_siem,auth,credential_access,</group>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <rule id="209304" level="6">
+    <if_sid>209300</if_sid>
+    <regex>processes=[1-9][0-9]*</regex>
+    <description>OPXDR SIEM agent process telemetry detected</description>
+    <group>opxdr_siem,process,execution,</group>
+    <mitre>
+      <id>T1057</id>
+    </mitre>
+  </rule>
+
+  <rule id="209305" level="7">
+    <if_sid>209300</if_sid>
+    <regex>files=[1-9][0-9]*</regex>
+    <description>OPXDR SIEM agent file integrity telemetry detected</description>
+    <group>opxdr_siem,file_integrity,defense_evasion,</group>
+    <mitre>
+      <id>T1565.001</id>
+    </mitre>
+  </rule>
+</group>

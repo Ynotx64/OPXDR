@@ -1,0 +1,253 @@
+<group name="opxdr,soc_detection_briefs,">
+  <rule id="209400" level="3">
+    <match>OPXDR_OT_TELEMETRY</match>
+    <description>OPXDR OT telemetry baseline event</description>
+    <group>opxdr,ot,baseline,</group>
+    <mitre>
+      <id>T0846</id>
+    </mitre>
+  </rule>
+
+  <rule id="209401" level="6">
+    <if_sid>209400</if_sid>
+    <regex type="pcre2">dst_port=102|service=s7comm|protocol=s7comm</regex>
+    <description>Siemens S7 or S7comm activity observed on TCP/102</description>
+    <group>opxdr,ot,siemens_s7,informational,</group>
+    <mitre>
+      <id>T0846</id>
+    </mitre>
+  </rule>
+
+  <rule id="209402" level="8">
+    <if_sid>209400</if_sid>
+    <regex type="pcre2">first_seen_peer=true.*(dst_port=102|service=s7comm|protocol=s7comm)|(dst_port=102|service=s7comm|protocol=s7comm).*first_seen_peer=true</regex>
+    <description>First-time Siemens S7 peer relationship observed</description>
+    <group>opxdr,ot,siemens_s7,new_peer,medium,</group>
+    <mitre>
+      <id>T0846</id>
+    </mitre>
+  </rule>
+
+  <rule id="209403" level="10">
+    <if_sid>209400</if_sid>
+    <regex type="pcre2">engineering_host=false.*(dst_port=102|service=s7comm|protocol=s7comm)|(dst_port=102|service=s7comm|protocol=s7comm).*engineering_host=false</regex>
+    <description>Siemens S7 activity from an unauthorized engineering host</description>
+    <group>opxdr,ot,siemens_s7,unauthorized_host,high,</group>
+    <mitre>
+      <id>T0846</id>
+    </mitre>
+  </rule>
+
+  <rule id="209404" level="15">
+    <if_sid>209400</if_sid>
+    <regex type="pcre2">controller_write=true.*engineering_host=false|engineering_host=false.*controller_write=true</regex>
+    <description>Critical Siemens S7 controller write from unauthorized host</description>
+    <group>opxdr,ot,siemens_s7,controller_write,critical,</group>
+    <mitre>
+      <id>T0831</id>
+    </mitre>
+  </rule>
+
+  <rule id="209410" level="3">
+    <match>OPXDR_LINUX_PRIVILEGE_BASELINE</match>
+    <description>OPXDR Linux privileged-binary baseline telemetry</description>
+    <group>opxdr,linux,privilege_baseline,informational,</group>
+    <mitre>
+      <id>T1548.001</id>
+    </mitre>
+  </rule>
+
+  <rule id="209411" level="8">
+    <if_sid>209410</if_sid>
+    <regex type="pcre2">baseline_status=(missing|altered|tampered)</regex>
+    <description>Linux SUID or SGID baseline missing or altered</description>
+    <group>opxdr,linux,privilege_baseline,tampering,medium,</group>
+    <mitre>
+      <id>T1565.001</id>
+      <id>T1548.001</id>
+    </mitre>
+  </rule>
+
+  <rule id="209412" level="15">
+    <if_sid>209410</if_sid>
+    <regex type="pcre2">unauthorized_suid=true|unauthorized_sgid=true|mode=4[0-7][0-7][0-7]|mode=2[0-7][0-7][0-7]</regex>
+    <description>Unauthorized Linux SUID or SGID privilege-persistence change</description>
+    <group>opxdr,linux,suid_sgid,privilege_persistence,critical,</group>
+    <mitre>
+      <id>T1548.001</id>
+    </mitre>
+  </rule>
+
+  <rule id="209420" level="3">
+    <match>OPXDR_WINDOWS_EVENT</match>
+    <description>OPXDR Windows event telemetry baseline</description>
+    <group>opxdr,windows,baseline,</group>
+  </rule>
+
+  <rule id="209421" level="8">
+    <if_sid>209420</if_sid>
+    <regex type="pcre2">event_id=5145.*share=(ADMIN\$|C\$|IPC\$)|share=(ADMIN\$|C\$|IPC\$).*event_id=5145</regex>
+    <description>Windows administrative-share write activity observed</description>
+    <group>opxdr,windows,smb,admin_share,medium,</group>
+    <mitre>
+      <id>T1021.002</id>
+    </mitre>
+  </rule>
+
+  <rule id="209422" level="10">
+    <if_sid>209420</if_sid>
+    <regex type="pcre2">event_id=5145.*share=(ADMIN\$|C\$|IPC\$).*(write_count=2[1-9]|write_count=[3-9][0-9]|zscore=[3-9])|share=(ADMIN\$|C\$|IPC\$).*event_id=5145.*(write_count=2[1-9]|write_count=[3-9][0-9]|zscore=[3-9])</regex>
+    <description>High-frequency SMB administrative-share writes exceed behavioral threshold</description>
+    <group>opxdr,windows,smb,admin_share,high_frequency,high,</group>
+    <mitre>
+      <id>T1021.002</id>
+    </mitre>
+  </rule>
+
+  <rule id="209430" level="3">
+    <match>OPXDR_IDENTITY_TELEMETRY</match>
+    <description>OPXDR identity telemetry baseline</description>
+    <group>opxdr,identity,baseline,</group>
+  </rule>
+
+  <rule id="209431" level="8">
+    <if_sid>209430</if_sid>
+    <regex type="pcre2">device_code_auth=true|app_password_created=true|oauth_grant_unverified=true|new_device_registration=true</regex>
+    <description>Identity authentication-flow abuse signal observed</description>
+    <group>opxdr,identity,oauth,device_code,medium,</group>
+    <mitre>
+      <id>T1078</id>
+      <id>T1550.001</id>
+    </mitre>
+  </rule>
+
+  <rule id="209432" level="10">
+    <if_sid>209430</if_sid>
+    <regex type="pcre2">(new_device_registration=true|device_code_auth=true|app_password_created=true).*(unusual_asn=true|first_seen_redirect_domain=true|residential_proxy=true).*(graph_high_volume=true|mailbox_access=true|file_access=true)</regex>
+    <description>Correlated captive-portal or OAuth abuse followed by cloud data access</description>
+    <group>opxdr,identity,oauth,graph_access,high,</group>
+    <mitre>
+      <id>T1078</id>
+      <id>T1114</id>
+      <id>T1528</id>
+    </mitre>
+  </rule>
+
+  <rule id="209440" level="3">
+    <match>OPXDR_FLOW_TELEMETRY</match>
+    <description>OPXDR Zeek NetFlow or IPFIX telemetry baseline</description>
+    <group>opxdr,network,flow,baseline,</group>
+    <mitre>
+      <id>T1049</id>
+    </mitre>
+  </rule>
+
+  <rule id="209441" level="8">
+    <if_sid>209440</if_sid>
+    <regex type="pcre2">new_peer_count=[1-9][0-9]*|destination_diversity=(high|[2-9][0-9])|failed_connection_burst=true|outbound_byte_acceleration=true</regex>
+    <description>Contextual flow anomaly across host-window features</description>
+    <group>opxdr,network,flow,contextual_anomaly,medium,</group>
+    <mitre>
+      <id>T1046</id>
+      <id>T1041</id>
+    </mitre>
+  </rule>
+
+  <rule id="209442" level="10">
+    <if_sid>209440</if_sid>
+    <regex type="pcre2">(new_peer_count=[1-9][0-9]*.*failed_connection_burst=true|destination_diversity=(high|[2-9][0-9]).*outbound_byte_acceleration=true|failed_connection_burst=true.*outbound_byte_acceleration=true)</regex>
+    <description>Correlated flow behavior indicates staged intrusion activity</description>
+    <group>opxdr,network,flow,staged_intrusion,high,</group>
+    <mitre>
+      <id>T1046</id>
+      <id>T1041</id>
+    </mitre>
+  </rule>
+
+  <rule id="209450" level="3">
+    <match>OPXDR_APP_TELEMETRY</match>
+    <description>OPXDR application telemetry baseline</description>
+    <group>opxdr,application,baseline,</group>
+  </rule>
+
+  <rule id="209451" level="10">
+    <if_sid>209450</if_sid>
+    <regex type="pcre2">app=zimbra.*service=zimbra-snmp.*child_process=(sh|bash|dash|python|perl|curl|wget)|service=zimbra-snmp.*app=zimbra.*child_process=(sh|bash|dash|python|perl|curl|wget)</regex>
+    <description>Zimbra SNMP service spawned shell interpreter or download utility</description>
+    <group>opxdr,application,zimbra,command_injection,high,</group>
+    <mitre>
+      <id>T1190</id>
+      <id>T1059</id>
+    </mitre>
+  </rule>
+
+  <rule id="209452" level="15">
+    <if_sid>209450</if_sid>
+    <regex type="pcre2">app=zimbra.*(path=/opt/zimbra|service=zimbra-snmp).*(child_process=(sh|bash|dash|python|perl|curl|wget)|scheduled_job_created=true).*(outbound_connection=true|unexpected_file=true)</regex>
+    <description>Critical Zimbra exploitation sequence with execution and persistence or egress</description>
+    <group>opxdr,application,zimbra,exploitation,critical,</group>
+    <mitre>
+      <id>T1190</id>
+      <id>T1059</id>
+      <id>T1053</id>
+    </mitre>
+  </rule>
+
+  <rule id="209460" level="8">
+    <if_sid>209450</if_sid>
+    <regex type="pcre2">app=trueconf.*dst_port=4307|dst_port=4307.*app=trueconf</regex>
+    <description>TrueConf Server external access on TCP/4307 observed</description>
+    <group>opxdr,application,trueconf,network_access,medium,</group>
+    <mitre>
+      <id>T1190</id>
+    </mitre>
+  </rule>
+
+  <rule id="209461" level="10">
+    <if_sid>209450</if_sid>
+    <regex type="pcre2">app=trueconf.*dst_port=4307.*child_process=(sh|bash|cmd|powershell|python|perl|curl|wget)|app=trueconf.*child_process=(sh|bash|cmd|powershell|python|perl|curl|wget).*dst_port=4307</regex>
+    <description>TrueConf service process spawned interpreter or system utility after inbound TCP/4307</description>
+    <group>opxdr,application,trueconf,command_execution,high,</group>
+    <mitre>
+      <id>T1190</id>
+      <id>T1059</id>
+    </mitre>
+  </rule>
+
+  <rule id="209462" level="15">
+    <if_sid>209450</if_sid>
+    <regex type="pcre2">app=trueconf.*dst_port=4307.*host_persistence=true|app=trueconf.*host_persistence=true.*dst_port=4307</regex>
+    <description>Critical TrueConf exploitation sequence with host-level persistence</description>
+    <group>opxdr,application,trueconf,persistence,critical,</group>
+    <mitre>
+      <id>T1190</id>
+      <id>T1547</id>
+    </mitre>
+  </rule>
+
+  <rule id="209470" level="3">
+    <match>OPXDR_SYSMON_TELEMETRY</match>
+    <description>OPXDR Sysmon telemetry baseline</description>
+    <group>opxdr,windows,sysmon,baseline,</group>
+  </rule>
+
+  <rule id="209471" level="10">
+    <if_sid>209470</if_sid>
+    <regex type="pcre2">process_name=rundll32.exe.*comsvcs.dll.*MiniDump|image=rundll32.exe.*comsvcs.dll.*MiniDump</regex>
+    <description>Rundll32 comsvcs MiniDump behavior consistent with LSASS dump technique</description>
+    <group>opxdr,windows,credential_dumping,medusa,high,</group>
+    <mitre>
+      <id>T1003.001</id>
+    </mitre>
+  </rule>
+
+  <rule id="209472" level="15">
+    <if_sid>209470</if_sid>
+    <regex type="pcre2">comsvcs.dll.*MiniDump.*target_process=lsass.exe.*dump_file_created=true|target_process=lsass.exe.*comsvcs.dll.*MiniDump.*dump_file_created=true</regex>
+    <description>Critical correlated LSASS dump sequence using comsvcs MiniDump</description>
+    <group>opxdr,windows,credential_dumping,lsass,critical,</group>
+    <mitre>
+      <id>T1003.001</id>
+    </mitre>
+  </rule>
+</group>
