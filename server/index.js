@@ -17,12 +17,20 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import https from "node:https";
-import { spawn } from "node:child_process";
+import crypto from "node:crypto";
+import dgram from "node:dgram";
+import net from "node:net";
+import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { EventEmitter } from "node:events";
+import os from "node:os";
+import geoip from "geoip-lite";
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SERVER_DATA_DIR = path.join(__dirname, "data");
+const SIEM_AGENT_TELEMETRY_LOG = path.join(SERVER_DATA_DIR, "siem-agent-telemetry.jsonl");
+const OPXDR_SIEM_AGENT_VERSION = "opxdr-siem-agent/1.0.0";
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
@@ -39,6 +47,28 @@ const WAZUH_RULES_DIR = process.env.WAZUH_RULES_DIR || "/var/ossec/etc/rules";
 const WAZUH_AUTO_RESTART = (process.env.WAZUH_AUTO_RESTART || "true") === "true";
 const WAZUH_ALERTS_LOG = process.env.WAZUH_ALERTS_LOG || "/var/ossec/logs/alerts/alerts.json";
 
+// Optional SIEM fanout. OPXDR remains the source-of-truth event broker; each
+// destination only activates when its endpoint/token env vars are configured.
+const SIEM_FORWARD_ENABLED = (process.env.SIEM_FORWARD_ENABLED || "true") === "true";
+const SIEM_SYSLOG_HOST = process.env.SIEM_SYSLOG_HOST || "";
+const SIEM_SYSLOG_PORT = parseInt(process.env.SIEM_SYSLOG_PORT || "514", 10);
+const SIEM_SYSLOG_PROTO = (process.env.SIEM_SYSLOG_PROTO || "udp").toLowerCase();
+const SIEM_SYSLOG_FORMAT = (process.env.SIEM_SYSLOG_FORMAT || "cef").toLowerCase();
+const SPLUNK_HEC_URL = process.env.SPLUNK_HEC_URL || "";
+const SPLUNK_HEC_TOKEN = process.env.SPLUNK_HEC_TOKEN || "";
+const SPLUNK_HEC_INDEX = process.env.SPLUNK_HEC_INDEX || "opxdr";
+const ELASTIC_INGEST_URL = process.env.ELASTIC_INGEST_URL || "";
+const ELASTIC_API_KEY = process.env.ELASTIC_API_KEY || "";
+const ELASTIC_USERNAME = process.env.ELASTIC_USERNAME || "";
+const ELASTIC_PASSWORD = process.env.ELASTIC_PASSWORD || "";
+const SENTINEL_WORKSPACE_ID = process.env.SENTINEL_WORKSPACE_ID || "";
+const SENTINEL_SHARED_KEY = process.env.SENTINEL_SHARED_KEY || "";
+const SENTINEL_LOG_TYPE = process.env.SENTINEL_LOG_TYPE || "OPXDRTestfire";
+const QRADAR_INGEST_URL = process.env.QRADAR_INGEST_URL || "";
+const QRADAR_TOKEN = process.env.QRADAR_TOKEN || "";
+const CHRONICLE_INGEST_URL = process.env.CHRONICLE_INGEST_URL || "";
+const CHRONICLE_TOKEN = process.env.CHRONICLE_TOKEN || "";
+
 // Slack + AI auto-report config
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || "";
 const SLACK_CHANNEL = process.env.SLACK_CHANNEL || "#soc-alerts";
@@ -51,6 +81,7 @@ const AI_AUTO_SLACK_NOTIFY = (process.env.AI_AUTO_SLACK_NOTIFY || "true") === "t
 for (const d of [CUSTOM_RULES_DIR, CUSTOM_PLAYBOOKS_DIR]) {
   try { fs.mkdirSync(d, { recursive: true }); } catch {}
 }
+try { fs.mkdirSync(SERVER_DATA_DIR, { recursive: true }); } catch {}
 
 const insecureAgent = new https.Agent({ rejectUnauthorized: !WAZUH_API_INSECURE });
 
@@ -75,14 +106,17 @@ async function wazuhAuth() {
   return wazuhToken;
 }
 
-async function wazuh(pathName, params = {}) {
+async function wazuh(pathName, paramsOrOpts = {}) {
   const token = await wazuhAuth();
+  let opts = { method: "GET", headers: { Authorization: `Bearer ${token}` }, agent: insecureAgent };
+  let params = paramsOrOpts;
+  if (paramsOrOpts.method || paramsOrOpts.body) {
+    opts = { ...opts, ...paramsOrOpts };
+    params = {};
+  }
   const url = new URL(`${WAZUH_API_URL}${pathName}`);
   for (const [k, v] of Object.entries(params)) if (v != null) url.searchParams.set(k, String(v));
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-    agent: insecureAgent,
-  });
+  const res = await fetch(url, opts);
   if (!res.ok) throw new Error(`Wazuh ${pathName} -> ${res.status}: ${await res.text()}`);
   return res.json();
 }
@@ -303,6 +337,783 @@ app.get("/api/health", async (_req, res) => {
   });
 });
 
+// ─── Wazuh Agents ───────────────────────────────────────────────────────
+async function readLatestSiemTelemetryByAgent() {
+  const byAgent = {};
+  try {
+    const raw = await new Promise((resolve, reject) => {
+      const proc = spawn("tail", ["-n", "400", SIEM_AGENT_TELEMETRY_LOG]);
+      let buf = "";
+      proc.stdout.on("data", d => buf += d.toString());
+      proc.on("close", () => resolve(buf));
+      proc.on("error", reject);
+    });
+    for (const line of raw.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const event = JSON.parse(line);
+        const id = String(event.agent_id || event.agentId || "");
+        if (!id) continue;
+        const seen = Date.parse(event.receivedAt || event.time || "");
+        const prev = byAgent[id];
+        if (!prev || seen > Date.parse(prev.receivedAt || prev.time || "")) byAgent[id] = event;
+      } catch {}
+    }
+  } catch {}
+  return byAgent;
+}
+
+app.get("/api/agents", async (req, res) => {
+  try {
+    const j = await wazuh("/agents", { limit: parseInt(req.query.limit || "500", 10), offset: 0 });
+    const items = j?.data?.affected_items || [];
+    const summary = await wazuh("/agents/summary/status").catch(() => ({}));
+    const latestSiem = await readLatestSiemTelemetryByAgent();
+    const seenAgentIds = new Set(items.map(a => String(a.id)));
+    const agents = items.map(a => {
+      const opxdr = latestSiem[String(a.id)];
+      return {
+        id: a.id,
+        name: a.name,
+        ip: a.ip,
+        status: a.status,
+        os: { name: a.os?.name, version: a.os?.version, platform: a.os?.platform },
+        version: a.version,
+        opxdrAgent: opxdr ? {
+          installed: true,
+          version: opxdr.agent_version || OPXDR_SIEM_AGENT_VERSION,
+          lastSeen: opxdr.receivedAt || opxdr.time,
+          hostname: opxdr.hostname,
+          ip: opxdr.ip,
+          telemetrySchema: opxdr.telemetry_schema || "opxdr.siem.telemetry.v1",
+          activePorts: Array.isArray(opxdr.network) ? opxdr.network.length : 0,
+          authEvents: Array.isArray(opxdr.auth) ? opxdr.auth.length : 0,
+          processCount: Array.isArray(opxdr.processes) ? opxdr.processes.length : 0,
+        } : { installed: false, version: OPXDR_SIEM_AGENT_VERSION },
+        group: a.group,
+        node: a.node,
+        lastKeepAlive: a.lastKeepAlive,
+        dateAdd: a.dateAdd,
+        honeypotLocation: agentHoneypotLocation(a),
+        honeypotStatus: honeypotRuntimeStatus(a),
+        honeypotServices: Object.values(HONEYPOT_SERVICE_CATALOG),
+      };
+    });
+    for (const [id, opxdr] of Object.entries(latestSiem)) {
+      if (seenAgentIds.has(String(id))) continue;
+      agents.push({
+        id,
+        name: opxdr.agent_name || opxdr.hostname || `OPXDR ${id}`,
+        ip: opxdr.ip || "external",
+        status: "active",
+        os: { name: opxdr.system?.os || "OPXDR telemetry", version: opxdr.system?.kernel || "", platform: opxdr.system?.arch || "" },
+        version: "external",
+        opxdrAgent: {
+          installed: true,
+          version: opxdr.agent_version || OPXDR_SIEM_AGENT_VERSION,
+          lastSeen: opxdr.receivedAt || opxdr.time,
+          hostname: opxdr.hostname,
+          ip: opxdr.ip,
+          telemetrySchema: opxdr.telemetry_schema || "opxdr.siem.telemetry.v1",
+          activePorts: Array.isArray(opxdr.network) ? opxdr.network.length : 0,
+          authEvents: Array.isArray(opxdr.auth) ? opxdr.auth.length : 0,
+          processCount: Array.isArray(opxdr.processes) ? opxdr.processes.length : 0,
+        },
+        group: "opxdr-external",
+        node: "opxdr",
+        lastKeepAlive: opxdr.receivedAt || opxdr.time,
+        dateAdd: opxdr.receivedAt || opxdr.time,
+        honeypotLocation: agentHoneypotLocation({ name: opxdr.agent_name || opxdr.hostname, ip: opxdr.ip }),
+        honeypotStatus: { installed: false, running: false, enabled: false, source: "not-installed", services: [] },
+        honeypotServices: Object.values(HONEYPOT_SERVICE_CATALOG),
+      });
+    }
+    res.json({
+      agents,
+      status_summary: summary?.data?.affected_items || {},
+      total: items.length,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+function localHoneypotControl(enabled) {
+  const action = enabled ? "start" : "stop";
+  commandOutput("sudo", ["-n", "systemctl", action, "opxdr-honeypot"]);
+  const active = commandOutput("sudo", ["-n", "systemctl", "is-active", "opxdr-honeypot"]).trim();
+  return active === "active";
+}
+
+app.post("/api/honeypot/agents/:id/state", async (req, res) => {
+  try {
+    const agentId = String(req.params.id || "");
+    const enabled = !!req.body?.enabled;
+    const j = await wazuh("/agents", { limit: 500, offset: 0 }).catch(() => ({}));
+    const found = (j?.data?.affected_items || []).find(a => String(a.id) === agentId) || { id: agentId, name: os.hostname(), ip: "127.0.0.1" };
+    if (!isLocalAgent(found)) {
+      return res.status(409).json({ error: "remote honeypot control requires running the install script on that endpoint", agentId, status: honeypotRuntimeStatus(found) });
+    }
+    localHoneypotControl(enabled);
+    res.json({ ok: true, agentId, status: honeypotRuntimeStatus(found) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put("/api/agents/:id/restart", async (req, res) => {
+  try {
+    const token = await wazuhAuth();
+    const r = await fetch(`${WAZUH_API_URL}/agents/${req.params.id}/restart`, {
+      method: "PUT", headers: { Authorization: `Bearer ${token}` }, agent: insecureAgent,
+    });
+    if (!r.ok) throw new Error(`Wazuh restart -> ${r.status}: ${await r.text()}`);
+    const j = await r.json();
+    res.json({ ok: true, data: j?.data });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete("/api/agents/:id", async (req, res) => {
+  try {
+    const token = await wazuhAuth();
+    const url = new URL(`${WAZUH_API_URL}/agents`);
+    url.searchParams.set("agents_list", req.params.id);
+    const r = await fetch(url, { method: "DELETE", headers: { Authorization: `Bearer ${token}` }, agent: insecureAgent });
+    if (!r.ok) throw new Error(`Wazuh DELETE agents -> ${r.status}: ${await r.text()}`);
+    const j = await r.json();
+    res.json({ ok: true, data: j?.data });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+
+const GEO_BY_CC_SERVER = {
+  US: { lat: 38.9, lng: -77.0, name: "United States" },
+  CN: { lat: 35.9, lng: 104.2, name: "China" },
+  RU: { lat: 55.7, lng: 37.6, name: "Russia" },
+  DE: { lat: 52.5, lng: 13.4, name: "Germany" },
+  NL: { lat: 52.4, lng: 4.9, name: "Netherlands" },
+  SG: { lat: 1.35, lng: 103.8, name: "Singapore" },
+  IN: { lat: 20.6, lng: 78.9, name: "India" },
+  BR: { lat: -14.2, lng: -51.9, name: "Brazil" },
+  GB: { lat: 51.5, lng: -0.1, name: "UK" },
+  UA: { lat: 49.0, lng: 32.0, name: "Ukraine" },
+  IR: { lat: 32.4, lng: 53.7, name: "Iran" },
+  JP: { lat: 36.2, lng: 138.3, name: "Japan" },
+  KP: { lat: 40.3, lng: 127.5, name: "North Korea" },
+  FR: { lat: 46.2, lng: 2.2, name: "France" },
+  CA: { lat: 56.1, lng: -106.3, name: "Canada" },
+};
+
+function ipToCyberGeo(ip = "") {
+  const cleanIp = String(ip || "").trim();
+  if (isPrivateOrLocalIp(cleanIp)) {
+    const local = systemHoneypotGeo();
+    return { ...local, name: "Private network", ip: cleanIp || "-", geoSource: "private" };
+  }
+
+  const hit = geoip.lookup(cleanIp);
+  if (hit?.ll?.length === 2 && Number.isFinite(hit.ll[0]) && Number.isFinite(hit.ll[1])) {
+    const cc = String(hit.country || "").toUpperCase() || "--";
+    const name = [hit.city, hit.region, cc].filter(Boolean).join(", ") || (GEO_BY_CC_SERVER[cc]?.name || cc);
+    return {
+      lat: hit.ll[0],
+      lng: hit.ll[1],
+      name,
+      city: hit.city || "",
+      region: hit.region || "",
+      cc,
+      ip: cleanIp || "-",
+      geoSource: "geoip-lite",
+    };
+  }
+
+  const first = parseInt(cleanIp.split(".")[0] || "0", 10);
+  let cc = "BR";
+  if (first >= 1 && first <= 50) cc = "CN";
+  else if (first >= 51 && first <= 79) cc = "US";
+  else if (first >= 80 && first <= 90) cc = "DE";
+  else if (first >= 91 && first <= 100) cc = "US";
+  else if (first >= 101 && first <= 130) cc = "DE";
+  else if (first >= 131 && first <= 180) cc = "RU";
+  else if (first >= 181 && first <= 220) cc = "IN";
+  const geo = GEO_BY_CC_SERVER[cc] || GEO_BY_CC_SERVER.BR;
+  return { ...geo, cc, ip: cleanIp || "-", geoSource: "fallback" };
+}
+
+function parseKvLog(line = "") {
+  const out = {};
+  const re = /([a-zA-Z0-9_.-]+)=([^\s]+)/g;
+  let m;
+  while ((m = re.exec(String(line))) !== null) out[m[1]] = m[2];
+  return out;
+}
+
+function honeypotMetaForService(service = "") {
+  const s = String(service).toLowerCase();
+  if (s === "ssh") return { type: "honeypot", severity: "high", cve: "CVE-2022-1388", malware: "Credential Probe", actor: "Unknown", tactic: "Credential Access", mitre: "T1110,T1021.004" };
+  if (s === "http") return { type: "honeypot", severity: "critical", cve: "CVE-2022-1388", malware: "Zmap", actor: "Unknown", tactic: "Initial Access", mitre: "T1190,T1595.002" };
+  if (s === "ftp") return { type: "honeypot", severity: "high", cve: "CVE-2022-1388", malware: "Credential Probe", actor: "Unknown", tactic: "Credential Access", mitre: "T1110,T1021.002" };
+  if (s === "smb") return { type: "honeypot", severity: "high", cve: "CVE-2020-0796", malware: "Share Scanner", actor: "Unknown", tactic: "Lateral Movement", mitre: "T1021.002,T1135" };
+  if (s === "smtp") return { type: "honeypot", severity: "medium", cve: "CVE-2023-23397", malware: "Relay Probe", actor: "Unknown", tactic: "Phishing", mitre: "T1598,T1110" };
+  return { type: "honeypot", severity: "medium", cve: "CVE-2022-1388", malware: "Scanner", actor: "Unknown", tactic: "Reconnaissance", mitre: "T1595" };
+}
+
+function servicePort(service, fallback = "") {
+  const spec = HONEYPOT_SERVICE_CATALOG[String(service).toLowerCase()];
+  return parseInt(fallback || spec?.port || "0", 10) || spec?.port || 0;
+}
+
+function commandOutput(cmd, args = []) {
+  try { return execFileSync(cmd, args, { encoding: "utf8", timeout: 2500, stdio: ["ignore", "pipe", "ignore"] }); }
+  catch { return ""; }
+}
+
+function isLocalAgent(agent = {}) {
+  const id = String(agent.id || "");
+  const name = String(agent.name || "").toLowerCase();
+  const ip = String(agent.ip || "").toLowerCase();
+  const host = os.hostname().toLowerCase();
+  return id === "000" || name === host || ip === "127.0.0.1" || ip === "localhost" || ip === "::1";
+}
+
+function honeypotRuntimeStatus(agent = {}) {
+  if (!isLocalAgent(agent)) {
+    return { installed: false, running: false, enabled: false, source: "not-installed", services: [] };
+  }
+  const serviceFile = "/etc/systemd/system/opxdr-honeypot.service";
+  const active = commandOutput("systemctl", ["is-active", "opxdr-honeypot"]).trim();
+  const enabled = commandOutput("systemctl", ["is-enabled", "opxdr-honeypot"]).trim();
+  const sockets = commandOutput("ss", ["-ltn"]);
+  const services = Object.values(HONEYPOT_SERVICE_CATALOG).map(spec => ({
+    ...spec,
+    listening: new RegExp(`:${spec.port}\\b`).test(sockets),
+  }));
+  const installed = fs.existsSync(serviceFile) || Boolean(active) || Boolean(enabled);
+  return {
+    installed,
+    running: active === "active" && services.some(s => s.listening),
+    enabled: enabled === "enabled",
+    source: "systemd",
+    serviceName: "opxdr-honeypot",
+    services,
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+function publicHostFromUrl(value = "") {
+  try { return new URL(value).hostname; } catch { return String(value || "100.86.115.94").replace(/^https?:\/\//, "").split(/[/:]/)[0]; }
+}
+
+function isPrivateOrLocalIp(value = "") {
+  const ip = String(value || "").trim().toLowerCase();
+  if (!ip || ip === "-" || ip === "any" || ip === "localhost" || ip === "::1") return true;
+  const parts = ip.split(".").map(n => parseInt(n, 10));
+  if (parts.length !== 4 || parts.some(n => Number.isNaN(n))) return false;
+  const [a, b] = parts;
+  return a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+}
+
+function systemHoneypotGeo() {
+  const envLat = parseFloat(process.env.OPXDR_HONEYPOT_LAT || "");
+  const envLng = parseFloat(process.env.OPXDR_HONEYPOT_LNG || "");
+  if (Number.isFinite(envLat) && Number.isFinite(envLng)) {
+    const cc = String(process.env.OPXDR_HONEYPOT_CC || "US").toUpperCase();
+    const base = GEO_BY_CC_SERVER[cc] || GEO_BY_CC_SERVER.US;
+    return { lat: envLat, lng: envLng, cc, name: process.env.OPXDR_HONEYPOT_NAME || base.name, systemLocation: "env" };
+  }
+
+  const tz = process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  if (/New_York|Detroit|Toronto|Montreal|Eastern/i.test(tz)) return { lat: 40.7128, lng: -74.0060, cc: "US", name: "New York, USA", systemLocation: "timezone" };
+  if (/Chicago|Central/i.test(tz)) return { lat: 41.8781, lng: -87.6298, cc: "US", name: "Chicago, USA", systemLocation: "timezone" };
+  if (/Denver|Mountain/i.test(tz)) return { lat: 39.7392, lng: -104.9903, cc: "US", name: "Denver, USA", systemLocation: "timezone" };
+  if (/Los_Angeles|Pacific/i.test(tz)) return { lat: 34.0522, lng: -118.2437, cc: "US", name: "Los Angeles, USA", systemLocation: "timezone" };
+  return { lat: 38.9, lng: -77.0, cc: "US", name: "United States", systemLocation: "default" };
+}
+
+
+function agentHoneypotLocation(agent = {}) {
+  const host = agent.name || os.hostname() || "soc-admin";
+  const ip = agent.ip && agent.ip !== "any" ? agent.ip : publicHostFromUrl(process.env.OPXDR_PUBLIC_URL || "http://100.86.115.94:8787");
+  const geo = isPrivateOrLocalIp(ip) ? systemHoneypotGeo() : ipToCyberGeo(ip);
+  return { host, ...geo, ip };
+}
+
+async function agentDestination(agentId, serverUrl) {
+  let host = os.hostname() || "soc-admin";
+  let ip = publicHostFromUrl(serverUrl || process.env.OPXDR_PUBLIC_URL || "http://100.86.115.94:8787");
+  if (agentId && agentId !== "local") {
+    try {
+      const j = await wazuh("/agents", { limit: 500, offset: 0 });
+      const found = (j?.data?.affected_items || []).find(a => String(a.id) === String(agentId));
+      if (found) {
+        host = found.name || host;
+        if (found.ip && found.ip !== "any") ip = found.ip;
+      }
+    } catch {}
+  }
+  const geo = isPrivateOrLocalIp(ip) ? systemHoneypotGeo() : ipToCyberGeo(ip);
+  return { host, ...geo, ip };
+}
+
+function alertToHoneypotEvent(alert, destination) {
+  const full = alert.fullLog || alert.raw?.full_log || "";
+  if (!/OPXDR_HONEYPOT/.test(full)) return null;
+  const kv = parseKvLog(full);
+  if (kv.preview === "listener_started" || kv.remote === "0.0.0.0" || String(kv.preview || "").startsWith("OPXDR")) return null;
+  const service = kv.service || "honeypot";
+  const meta = honeypotMetaForService(service);
+  const src = ipToCyberGeo(kv.remote || alert.srcIp || "-");
+  const dst = { ...destination, port: servicePort(service, kv.port), service };
+  return {
+    id: `honeypot-${alert.id || crypto.createHash("sha1").update(full).digest("hex").slice(0, 12)}`,
+    type: "honeypot",
+    severity: String(meta.severity || alert.severity || "medium").toLowerCase(),
+    src,
+    dst,
+    cve: kv.cve || meta.cve,
+    malware: kv.malware || meta.malware,
+    actor: kv.actor || meta.actor,
+    tactic: meta.tactic,
+    mitre: meta.mitre,
+    timestamp: alert.time || new Date().toISOString(),
+    createdAt: Date.parse(alert.time || new Date()) || Date.now(),
+    color: "#ff7a18",
+    feed: "OPXDR Honeypot",
+    agentId: kv.agent_id || alert.agentId,
+    service,
+    raw: alert,
+  };
+}
+
+async function loadHoneypotCyberEvents({ limit = 100, since = null, agentIds = [] } = {}) {
+  const alerts = [];
+  const agentFilter = new Set((agentIds || []).map(v => String(v)).filter(Boolean));
+  const sinceMs = since ? new Date(since).getTime() : 0;
+  for (const a of injectedAlerts) {
+    if (/OPXDR_HONEYPOT/.test(a.fullLog || "") && (!sinceMs || new Date(a.time || 0).getTime() > sinceMs)) alerts.push(a);
+  }
+  if (WAZUH_INDEXER_PASS) {
+    try {
+      const result = await queryIndexer({ minLevel: 1, size: Math.max(limit * 4, 100), after: since });
+      for (const hit of result.hits?.hits || []) {
+        const parsed = parseIndexerHit(hit);
+        if (parsed && /OPXDR_HONEYPOT/.test(parsed.fullLog || "")) alerts.push(parsed);
+      }
+    } catch (e) {
+      console.warn("[honeypot] indexer query failed:", e.message);
+    }
+  }
+  if (fs.existsSync(WAZUH_ALERTS_LOG) && alerts.length < limit) {
+    try {
+      const tail = await new Promise((resolve, reject) => {
+        const proc = spawn("tail", ["-n", String(limit * 8), WAZUH_ALERTS_LOG]);
+        let buf = "";
+        proc.stdout.on("data", d => buf += d.toString());
+        proc.on("close", () => resolve(buf));
+        proc.on("error", reject);
+      });
+      for (const line of tail.split("\n")) {
+        if (!line.includes("OPXDR_HONEYPOT")) continue;
+        const parsed = parseAlertLine(line);
+        if (parsed && (!sinceMs || new Date(parsed.time || 0).getTime() > sinceMs)) alerts.push(parsed);
+      }
+    } catch (e) {
+      console.warn("[honeypot] file tail failed:", e.message);
+    }
+  }
+  const seen = new Set();
+  const events = [];
+  for (const alert of alerts.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0))) {
+    const kv = parseKvLog(alert.fullLog || "");
+    const destination = await agentDestination(kv.agent_id || alert.agentId, kv.opxdr_server);
+    const event = alertToHoneypotEvent(alert, destination);
+    if (!event || (agentFilter.size && !agentFilter.has(String(event.agentId))) || seen.has(event.id)) continue;
+    seen.add(event.id);
+    events.push(event);
+    if (events.length >= limit) break;
+  }
+  return events;
+}
+
+function siemAgentInstallScript({ agentId, agentName, serverUrl }) {
+  const pyAgentId = JSON.stringify(agentId);
+  const pyAgentName = JSON.stringify(agentName || agentId);
+  const pyServerUrl = JSON.stringify(serverUrl);
+  const agentPy = `#!/usr/bin/env python3
+import hashlib
+import json
+import os
+import platform
+import socket
+import subprocess
+import syslog
+import time
+import urllib.error
+import urllib.request
+
+AGENT_ID = ${pyAgentId}
+AGENT_NAME = ${pyAgentName}
+OPXDR_SERVER = ${pyServerUrl}.rstrip("/")
+INTERVAL = int(os.environ.get("OPXDR_SIEM_INTERVAL", "30"))
+WATCH_PATHS = ["/etc/passwd", "/etc/group", "/etc/ssh/sshd_config", "/etc/sudoers"]
+AUTH_LOGS = ["/var/log/auth.log", "/var/log/secure"]
+
+def clean(value, limit=500):
+    text = str(value if value is not None else "-").replace("\\n", " ").replace("\\r", " ")
+    return text[:limit]
+
+def run(cmd):
+    try:
+        return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, text=True, timeout=4)
+    except Exception:
+        return ""
+
+def primary_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+def sha256_file(path):
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(65536), b""):
+                h.update(chunk)
+        st = os.stat(path)
+        return {"path": path, "sha256": h.hexdigest(), "size": st.st_size, "mtime": int(st.st_mtime)}
+    except Exception as exc:
+        return {"path": path, "error": clean(exc, 160)}
+
+def process_snapshot():
+    lines = run(["ps", "-eo", "pid,ppid,user,comm,args", "--no-headers"]).splitlines()[:80]
+    return [clean(line, 260) for line in lines]
+
+def network_snapshot():
+    out = run(["ss", "-H", "-tulpen"]) or run(["netstat", "-tulpen"])
+    return [clean(line, 260) for line in out.splitlines()[:80]]
+
+def auth_snapshot():
+    events = []
+    needles = ("failed password", "accepted password", "accepted publickey", "sudo:", "session opened", "invalid user")
+    for path in AUTH_LOGS:
+        if not os.path.exists(path):
+            continue
+        for line in run(["tail", "-n", "80", path]).splitlines():
+            low = line.lower()
+            if any(n in low for n in needles):
+                events.append({"path": path, "line": clean(line, 320)})
+    return events[-40:]
+
+def payload(kind):
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    uptime = None
+    if os.path.exists("/proc/uptime"):
+        try:
+            uptime = int(float(open("/proc/uptime").read().split()[0]))
+        except Exception:
+            uptime = None
+    return {
+        "marker": "OPXDR_SIEM_TELEMETRY",
+        "agent_version": "${OPXDR_SIEM_AGENT_VERSION}",
+        "telemetry_schema": "opxdr.siem.telemetry.v1",
+        "kind": kind,
+        "agent_id": AGENT_ID,
+        "agent_name": AGENT_NAME,
+        "hostname": socket.gethostname(),
+        "fqdn": socket.getfqdn(),
+        "ip": primary_ip(),
+        "time": now,
+        "system": {
+            "os": platform.platform(),
+            "kernel": platform.release(),
+            "arch": platform.machine(),
+            "uptime_seconds": uptime,
+            "loadavg": os.getloadavg() if hasattr(os, "getloadavg") else None,
+        },
+        "processes": process_snapshot(),
+        "network": network_snapshot(),
+        "auth": auth_snapshot(),
+        "files": [sha256_file(p) for p in WATCH_PATHS],
+    }
+
+def emit(data):
+    top_ports = ",".join([clean(x, 80).split()[4] if len(clean(x, 80).split()) > 4 else clean(x, 80) for x in (data.get("network") or [])[:12]])
+    summary = "OPXDR_SIEM_TELEMETRY agent_id=%s agent_name=%s agent_version=%s schema=%s kind=%s host=%s ip=%s processes=%s listeners=%s active_ports=%s auth_events=%s files=%s" % (
+        clean(data.get("agent_id")),
+        clean(data.get("agent_name")),
+        clean(data.get("agent_version")),
+        clean(data.get("telemetry_schema")),
+        clean(data.get("kind")),
+        clean(data.get("hostname")),
+        clean(data.get("ip")),
+        len(data.get("processes") or []),
+        len(data.get("network") or []),
+        clean(top_ports, 260),
+        len(data.get("auth") or []),
+        len(data.get("files") or []),
+    )
+    syslog.syslog(syslog.LOG_INFO, summary)
+    print(data["time"], summary, flush=True)
+    body = json.dumps(data).encode("utf-8")
+    req = urllib.request.Request(
+        OPXDR_SERVER + "/api/opxdr-siem-agent/telemetry",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        urllib.request.urlopen(req, timeout=6).read()
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        syslog.syslog(syslog.LOG_WARNING, "OPXDR_SIEM_TELEMETRY post_failed agent_id=%s error=%s" % (clean(AGENT_ID), clean(exc, 180)))
+
+def main():
+    emit(payload("startup"))
+    while True:
+        emit(payload("heartbeat"))
+        time.sleep(INTERVAL)
+
+if __name__ == "__main__":
+    main()
+`;
+
+  return [
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    "INSTALL_DIR=/opt/opxdr-siem-agent",
+    "AGENT_FILE=$INSTALL_DIR/opxdr-siem-agent.py",
+    "SERVICE_FILE=/etc/systemd/system/opxdr-siem-agent.service",
+    "mkdir -p $INSTALL_DIR",
+    "cat > $AGENT_FILE <<'PYAGENT'",
+    agentPy,
+    "PYAGENT",
+    "chmod 0755 $AGENT_FILE",
+    "cat > $SERVICE_FILE <<'UNIT'",
+    "[Unit]",
+    "Description=OPXDR SIEM Telemetry Agent",
+    "After=network-online.target rsyslog.service",
+    "Wants=network-online.target",
+    "",
+    "[Service]",
+    "Type=simple",
+    "ExecStart=/usr/bin/env python3 /opt/opxdr-siem-agent/opxdr-siem-agent.py",
+    "Restart=always",
+    "RestartSec=5",
+    "NoNewPrivileges=true",
+    "PrivateTmp=true",
+    "",
+    "[Install]",
+    "WantedBy=multi-user.target",
+    "UNIT",
+    "systemctl daemon-reload",
+    "systemctl enable --now opxdr-siem-agent.service",
+    "systemctl --no-pager --full status opxdr-siem-agent.service || true",
+    "echo OPXDR SIEM telemetry agent installed for agent " + agentId,
+    "echo Telemetry marker: OPXDR_SIEM_TELEMETRY",
+    "",
+  ].join("\n");
+}
+
+app.post(["/api/opxdr-siem-agent/telemetry", "/api/siem-agent/telemetry"], async (req, res) => {
+  try {
+    const event = {
+      receivedAt: new Date().toISOString(),
+      remoteAddress: req.ip,
+      ...req.body,
+      marker: "OPXDR_SIEM_TELEMETRY",
+    };
+    await fsp.appendFile(SIEM_AGENT_TELEMETRY_LOG, JSON.stringify(event) + "\n");
+    res.json({ ok: true, receivedAt: event.receivedAt });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get(["/api/opxdr-siem-agent/install.sh", "/api/siem-agent/install.sh"], (req, res) => {
+  const agentId = String(req.query.agentId || "local").replace(/[^a-zA-Z0-9_.:-]/g, "_").slice(0, 80) || "local";
+  const agentName = String(req.query.name || agentId).replace(/[\r\n]/g, " ").slice(0, 120) || agentId;
+  const serverUrl = process.env.OPXDR_PUBLIC_URL || `${req.protocol}://${req.get("host")}`;
+  const script = siemAgentInstallScript({ agentId, agentName, serverUrl });
+  res.setHeader("Content-Type", "text/x-shellscript; charset=utf-8");
+  res.setHeader("Content-Disposition", "attachment; filename=opxdr-siem-agent-install.sh");
+  res.send(script);
+});
+
+const HONEYPOT_SERVICE_CATALOG = {
+  ssh: { id: "ssh", name: "SSH Credential Trap", proto: "TCP", port: 2222, tactic: "Credential Access" },
+  http: { id: "http", name: "HTTP Web Trap", proto: "TCP", port: 8080, tactic: "Initial Access" },
+  ftp: { id: "ftp", name: "FTP Drop Trap", proto: "TCP", port: 2121, tactic: "Credential Access" },
+  smb: { id: "smb", name: "SMB Share Lure", proto: "TCP", port: 4455, tactic: "Lateral Movement" },
+  smtp: { id: "smtp", name: "SMTP Relay Trap", proto: "TCP", port: 2525, tactic: "Phishing" },
+};
+
+function selectedHoneypotServices(raw) {
+  const requested = String(raw || "ssh,http,ftp,smb,smtp").split(",").map(v => v.trim().toLowerCase()).filter(Boolean);
+  const unique = [...new Set(requested)].filter(id => HONEYPOT_SERVICE_CATALOG[id]);
+  return (unique.length ? unique : Object.keys(HONEYPOT_SERVICE_CATALOG)).map(id => HONEYPOT_SERVICE_CATALOG[id]);
+}
+
+function honeypotInstallScript({ agentId, services, serverUrl }) {
+  const pyServiceJson = JSON.stringify(JSON.stringify(services));
+  const pyAgentId = JSON.stringify(agentId);
+  const pyServerUrl = JSON.stringify(serverUrl);
+  const agentPy = `#!/usr/bin/env python3
+import json
+import os
+import signal
+import socket
+import syslog
+import threading
+import time
+
+SERVICES = json.loads(${pyServiceJson})
+AGENT_ID = ${pyAgentId}
+OPXDR_SERVER = ${pyServerUrl}
+STOP = threading.Event()
+
+BANNERS = {
+    "ssh": b"SSH-2.0-OpenSSH_8.9p1 Ubuntu-3\\r\\n",
+    "ftp": b"220 OPXDR FTP service ready\\r\\n",
+    "smtp": b"220 mail.local ESMTP Postfix\\r\\n",
+    "smb": b"\\x00\\x00\\x00\\x55SMB honeypot negotiation required\\r\\n",
+}
+
+HTTP_RESPONSE = (b"HTTP/1.1 401 Unauthorized\\r\\n"
+                 b"Server: nginx/1.18.0\\r\\n"
+                 b"Content-Type: text/plain\\r\\n"
+                 b"Connection: close\\r\\n"
+                 b"WWW-Authenticate: Basic realm=admin\\r\\n\\r\\n"
+                 b"authentication required\\n")
+
+def clean(value):
+    text = str(value or "-").replace("\\n", " ").replace("\\r", " ")
+    return text[:220]
+
+def emit(service, port, remote, payload):
+    preview = clean(payload.decode("utf-8", "replace") if isinstance(payload, bytes) else payload)
+    msg = "OPXDR_HONEYPOT agent_id=%s service=%s port=%s proto=tcp remote=%s opxdr_server=%s preview=%s" % (
+        clean(AGENT_ID), clean(service), clean(port), clean(remote), clean(OPXDR_SERVER), preview
+    )
+    syslog.syslog(syslog.LOG_INFO, msg)
+    print(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), msg, flush=True)
+
+def handle_client(service, port, conn, addr):
+    remote = addr[0] if addr else "unknown"
+    try:
+        conn.settimeout(4)
+        if service == "http":
+            payload = conn.recv(2048)
+            emit(service, port, remote, payload)
+            conn.sendall(HTTP_RESPONSE)
+            return
+        banner = BANNERS.get(service, b"OPXDR honeypot service ready\\r\\n")
+        if banner:
+            conn.sendall(banner)
+        payload = conn.recv(2048)
+        emit(service, port, remote, payload)
+        if service == "ftp":
+            conn.sendall(b"530 Login incorrect.\\r\\n")
+        elif service == "smtp":
+            conn.sendall(b"550 relay denied\\r\\n")
+    except Exception as exc:
+        emit(service, port, remote, "handler_error=" + str(exc))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+def listener(spec):
+    service = spec["id"]
+    port = int(spec["port"])
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("0.0.0.0", port))
+    sock.listen(50)
+    sock.settimeout(1)
+    emit(service, port, "0.0.0.0", "listener_started")
+    while not STOP.is_set():
+        try:
+            conn, addr = sock.accept()
+            threading.Thread(target=handle_client, args=(service, port, conn, addr), daemon=True).start()
+        except socket.timeout:
+            continue
+        except Exception as exc:
+            emit(service, port, "0.0.0.0", "listener_error=" + str(exc))
+            time.sleep(2)
+    sock.close()
+
+def shutdown(_signum, _frame):
+    STOP.set()
+
+signal.signal(signal.SIGTERM, shutdown)
+signal.signal(signal.SIGINT, shutdown)
+threads = []
+for spec in SERVICES:
+    t = threading.Thread(target=listener, args=(spec,), daemon=True)
+    t.start()
+    threads.append(t)
+while not STOP.is_set():
+    time.sleep(1)
+`;
+
+  return [
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    "INSTALL_DIR=/opt/opxdr-honeypot",
+    "AGENT_FILE=$INSTALL_DIR/opxdr-honeypot-agent.py",
+    "SERVICE_FILE=/etc/systemd/system/opxdr-honeypot.service",
+    "mkdir -p $INSTALL_DIR",
+    "cat > $AGENT_FILE <<'PYAGENT'",
+    agentPy,
+    "PYAGENT",
+    "chmod 0755 $AGENT_FILE",
+    "cat > $SERVICE_FILE <<'UNIT'",
+    "[Unit]",
+    "Description=OPXDR Honeypot Telemetry Agent",
+    "After=network-online.target rsyslog.service",
+    "Wants=network-online.target",
+    "",
+    "[Service]",
+    "Type=simple",
+    "ExecStart=/usr/bin/env python3 /opt/opxdr-honeypot/opxdr-honeypot-agent.py",
+    "Restart=always",
+    "RestartSec=3",
+    "NoNewPrivileges=true",
+    "PrivateTmp=true",
+    "",
+    "[Install]",
+    "WantedBy=multi-user.target",
+    "UNIT",
+    "systemctl daemon-reload",
+    "systemctl enable --now opxdr-honeypot.service",
+    "systemctl --no-pager --full status opxdr-honeypot.service || true",
+    "echo OPXDR honeypot agent installed for agent " + agentId + " with services: " + services.map(s => s.id).join(","),
+    "echo Telemetry marker: OPXDR_HONEYPOT",
+    "",
+  ].join("\n");
+}
+
+app.get("/api/honeypot-agent/install.sh", (req, res) => {
+  const agentId = String(req.query.agentId || "local").replace(/[^a-zA-Z0-9_.:-]/g, "_").slice(0, 80) || "local";
+  const services = selectedHoneypotServices(req.query.services);
+  const serverUrl = process.env.OPXDR_PUBLIC_URL || `${req.protocol}://${req.get("host")}`;
+  const script = honeypotInstallScript({ agentId, services, serverUrl });
+  res.setHeader("Content-Type", "text/x-shellscript; charset=utf-8");
+  res.setHeader("Content-Disposition", "attachment; filename=opxdr-honeypot-agent-install.sh");
+  res.send(script);
+});
+
 let rulesCache = null;
 let rulesCacheTime = 0;
 app.get("/api/rules", async (req, res) => {
@@ -391,6 +1202,83 @@ const ALERT_MIN_LEVEL = parseInt(process.env.ALERT_MIN_LEVEL || "1", 10);
 const alertEmitter = new EventEmitter();
 const injectedAlerts = []; // ring buffer — capped at 500
 
+// ─── Persistent High/Critical Alert Store ─────────────────────────────────
+const PERSISTED_ALERTS_FILE = path.join(__dirname, "..", ".persisted-alerts.json");
+let persistedAlerts = [];
+
+function loadPersistedAlerts() {
+  try {
+    if (fs.existsSync(PERSISTED_ALERTS_FILE)) {
+      const raw = fs.readFileSync(PERSISTED_ALERTS_FILE, "utf-8");
+      persistedAlerts = JSON.parse(raw);
+      if (!Array.isArray(persistedAlerts)) persistedAlerts = [];
+      console.log(`[persist] loaded ${persistedAlerts.length} high/critical alerts from disk`);
+    }
+  } catch (e) {
+    console.warn("[persist] could not load persisted alerts:", e.message);
+    persistedAlerts = [];
+  }
+}
+
+function savePersistedAlerts() {
+  try {
+    fs.writeFileSync(PERSISTED_ALERTS_FILE, JSON.stringify(persistedAlerts, null, 2));
+  } catch (e) {
+    console.warn("[persist] could not save persisted alerts:", e.message);
+  }
+}
+
+async function backfillHighCriticalAlerts() {
+  if (!WAZUH_INDEXER_PASS) return;
+  try {
+    const result = await queryIndexer({ minLevel: 7, size: 10000 });
+    const hits = (result.hits?.hits || []).map(parseIndexerHit).filter(Boolean);
+    const seen = new Set(persistedAlerts.map(a => a.id));
+    let added = 0;
+    for (const a of hits) {
+      if (a.severity === "LOW") continue;
+      if (!seen.has(a.id)) {
+        persistedAlerts.push(a);
+        seen.add(a.id);
+        added++;
+      }
+    }
+    if (added > 0) {
+      console.log(`[persist] backfill added ${added} new medium+ alerts (total: ${persistedAlerts.length})`);
+      savePersistedAlerts();
+    }
+  } catch (e) {
+    console.warn("[persist] backfill failed:", e.message);
+  }
+}
+
+async function pollHighCriticalAlerts() {
+  if (!WAZUH_INDEXER_PASS) return;
+  const lastTs = persistedAlerts.length > 0
+    ? [...persistedAlerts].sort((a, b) => b.time.localeCompare(a.time))[0].time
+    : new Date(Date.now() - 86400000).toISOString();
+  try {
+    const result = await queryIndexer({ minLevel: 7, size: 500, after: lastTs });
+    const hits = (result.hits?.hits || []).map(parseIndexerHit).filter(Boolean);
+    const seen = new Set(persistedAlerts.map(a => a.id));
+    let added = 0;
+    for (const a of hits) {
+      if (a.severity === "LOW") continue;
+      if (!seen.has(a.id)) {
+        persistedAlerts.push(a);
+        seen.add(a.id);
+        added++;
+      }
+    }
+    if (added > 0) {
+      console.log(`[persist] poll added ${added} new medium+ alerts (total: ${persistedAlerts.length})`);
+      savePersistedAlerts();
+    }
+  } catch (e) {
+    console.warn("[persist] poll failed:", e.message);
+  }
+}
+
 // ─── Wazuh Indexer (OpenSearch) ───────────────────────────────────────────
 const WAZUH_INDEXER_URL   = process.env.WAZUH_INDEXER_URL   || "https://localhost:9200";
 const WAZUH_INDEXER_USER  = process.env.WAZUH_INDEXER_USER  || "admin";
@@ -463,23 +1351,40 @@ function parseIndexerHit(hit) {
   };
 }
 
+
+app.get("/api/honeypot/events", async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit || "100", 10) || 100, 500);
+    const since = req.query.since || null;
+    const agentIds = String(req.query.agentIds || "").split(",").map(v => v.trim()).filter(Boolean);
+    const events = await loadHoneypotCyberEvents({ limit, since, agentIds });
+    res.json({ events, count: events.length, source: WAZUH_INDEXER_PASS ? "indexer" : "file" });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/api/alerts/recent", async (req, res) => {
   const limit    = parseInt(req.query.limit     || "500", 10);
   const minLevel = parseInt(req.query.min_level || String(ALERT_MIN_LEVEL), 10);
+  const since    = req.query.since || null; // ISO timestamp — when set, filter to alerts after this time
 
-  // Always include injected alerts (newest first, up to limit)
-  const injected = [...injectedAlerts].reverse().slice(0, limit);
+  // Always include injected alerts (newest first, up to limit), filtered by since if given
+  const sinceMs = since ? new Date(since).getTime() : 0;
+  const injected = [...injectedAlerts]
+    .reverse()
+    .filter(a => !sinceMs || new Date(a.time || 0).getTime() > sinceMs)
+    .slice(0, limit);
 
   // Primary: Wazuh Indexer (OpenSearch)
   if (WAZUH_INDEXER_PASS) {
     try {
-      const result = await queryIndexer({ minLevel, size: limit });
+      const result = await queryIndexer({ minLevel, size: limit, after: since });
       const wazuhAlerts = (result.hits?.hits || []).map(parseIndexerHit).filter(Boolean);
-      // Deduplicate Wazuh alerts by id, then merge with injected
       const seen = new Set(injected.map(a => a.id));
       const dedupedWazuh = wazuhAlerts.filter(a => { if(seen.has(a.id))return false; seen.add(a.id); return true; });
       const merged = [...injected, ...dedupedWazuh].slice(0, limit);
-      return res.json({ alerts: merged, count: merged.length, min_level: minLevel, source: "indexer" });
+      return res.json({ alerts: merged, count: merged.length, min_level: minLevel, since: since || null, source: "indexer" });
     } catch (e) {
       console.warn("[indexer] recent query failed, falling back to file:", e.message);
     }
@@ -499,11 +1404,12 @@ app.get("/api/alerts/recent", async (req, res) => {
         .map(parseAlertLine)
         .filter(Boolean)
         .filter((a) => (a.level || 0) >= minLevel)
+        .filter((a) => !sinceMs || new Date(a.time || 0).getTime() > sinceMs)
         .slice(-limit)
         .reverse();
       const seen = new Set(injected.map(a => a.id));
       const merged = [...injected, ...fileAlerts.filter(a => !seen.has(a.id))].slice(0, limit);
-      res.json({ alerts: merged, count: merged.length, min_level: minLevel, source: "file" });
+      res.json({ alerts: merged, count: merged.length, min_level: minLevel, since: since || null, source: "file" });
     });
     tail.on("error", (e) => res.status(500).json({ error: e.message }));
   } catch (e) {
@@ -603,43 +1509,291 @@ app.get("/api/alerts/stream", (req, res) => {
 
 // ─── Alert injection (custom/simulated detections) ────────────────────────
 const sevOrder = { LOW: 1, MEDIUM: 5, HIGH: 8, CRITICAL: 12 };
-app.post("/api/alerts/inject", (req, res) => {
-  const b = req.body || {};
-  if (!b.ruleName && !b.ruleId) return res.status(400).json({ error: "ruleName or ruleId required" });
 
+function buildInjectedAlert(b = {}) {
   const sev  = (b.severity || "HIGH").toUpperCase();
   const lvl  = sevOrder[sev] ?? 8;
   const ts   = b.time || new Date().toISOString();
   const uid  = `INJ-${ts.replace(/[^0-9]/g, "").slice(0, 14)}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
-  const alert = {
+  return {
     id:       uid,
     ruleId:   b.ruleId   || `CUSTOM-${uid.slice(-6)}`,
     ruleName: b.ruleName || b.ruleId || "Custom Detection",
     severity: sev,
     level:    lvl,
-    tactic:   b.tactic   || "—",
-    mitre:    b.mitre    || "—",
+    tactic:   b.tactic   || "-",
+    mitre:    b.mitre    || "-",
     time:     ts,
-    srcIp:    b.srcIp    || "—",
-    dstIp:    b.dstIp    || "—",
-    account:  b.account  || "—",
-    host:     b.host     || "—",
-    agentId:  b.agentId  || "—",
-    location: b.location || "—",
+    srcIp:    b.srcIp    || "-",
+    dstIp:    b.dstIp    || "-",
+    account:  b.account  || "-",
+    host:     b.host     || "soc-admin",
+    agentId:  b.agentId  || "000",
+    location: b.location || "testfire",
     fullLog:  b.fullLog  || b.raw_log || "",
-    decoder:  b.decoder  || "—",
+    decoder:  b.decoder  || "opxdr-testfire",
     iocs:     Array.isArray(b.iocs) ? b.iocs : [],
     groups:   Array.isArray(b.groups) ? b.groups : [],
     injected: true,
     raw:      b,
   };
+}
 
+function recordInjectedAlert(alert) {
   injectedAlerts.push(alert);
   if (injectedAlerts.length > 500) injectedAlerts.shift();
   alertEmitter.emit("alert", alert);
-  console.log(`[inject] ${alert.severity} — ${alert.ruleName}`);
+  forwardAlertToSiems(alert).catch((e) => console.warn("[siem-forward]", e.message));
+  console.log(`[inject] ${alert.severity} - ${alert.ruleName}`);
+  return alert;
+}
+
+function createInjectedAlert(b) {
+  return recordInjectedAlert(buildInjectedAlert(b));
+}
+
+function siemCategory(alert) {
+  const groups = Array.isArray(alert.groups) ? alert.groups.filter(Boolean) : [];
+  const tactic = String(alert.tactic || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  return [...new Set([...groups, tactic, "opxdr"].filter(Boolean))].join(",");
+}
+
+function normalizedSiemEvent(alert) {
+  return {
+    event: { kind: "alert", category: siemCategory(alert), type: "opxdr_testfire", action: alert.injected ? "testfire" : "detect", severity: alert.severity },
+    rule: { id: alert.ruleId, name: alert.ruleName, level: alert.level, mitre: alert.mitre, groups: alert.groups || [] },
+    host: { name: alert.host || "soc-admin", ip: alert.agentIp || undefined },
+    source: { ip: alert.srcIp && alert.srcIp !== "-" ? alert.srcIp : undefined, user: alert.account && alert.account !== "-" ? alert.account : undefined },
+    destination: { ip: alert.dstIp && alert.dstIp !== "-" ? alert.dstIp : undefined },
+    opxdr: { id: alert.id, location: alert.location, decoder: alert.decoder, iocs: alert.iocs || [], testfire: !!alert.raw?.testfire || !!alert.injected },
+    message: alert.fullLog || alert.ruleName,
+    timestamp: alert.time || new Date().toISOString(),
+    raw: alert.raw || alert,
+  };
+}
+
+const sevToNum = (sev) => ({ LOW: 3, MEDIUM: 5, HIGH: 8, CRITICAL: 10 }[String(sev || "").toUpperCase()] || 5);
+const escCef = (v = "") => String(v).replace(/\\/g, "\\\\").replace(/=/g, "\\=").replace(/\n/g, " ").replace(/\r/g, " ");
+
+function toCef(alert) {
+  const n = normalizedSiemEvent(alert);
+  return `CEF:0|OPXDR|OPXDR Server|2.0|${escCef(alert.ruleId)}|${escCef(alert.ruleName)}|${sevToNum(alert.severity)}|cat=${escCef(n.event.category)} act=testfire rt=${Date.parse(alert.time || new Date())} shost=${escCef(alert.host)} src=${escCef(alert.srcIp)} dst=${escCef(alert.dstIp)} suser=${escCef(alert.account)} cs1Label=mitre cs1=${escCef(alert.mitre)} cs2Label=location cs2=${escCef(alert.location)} msg=${escCef(alert.fullLog || alert.ruleName)}`;
+}
+
+function toLeef(alert) {
+  const n = normalizedSiemEvent(alert);
+  return `LEEF:2.0|OPXDR|OPXDR Server|2.0|${alert.ruleId}|cat=${n.event.category}\tsev=${alert.severity}\tdevTime=${alert.time}\tsrc=${alert.srcIp}\tdst=${alert.dstIp}\tusrName=${alert.account}\thostname=${alert.host}\trule=${alert.ruleName}\tmitre=${alert.mitre}\tmsg=${String(alert.fullLog || alert.ruleName).replace(/\t/g, " ")}`;
+}
+
+function syslogPayload(alert) {
+  if (SIEM_SYSLOG_FORMAT === "json") return JSON.stringify(normalizedSiemEvent(alert));
+  if (SIEM_SYSLOG_FORMAT === "leef") return toLeef(alert);
+  return toCef(alert);
+}
+
+function sendSyslog(alert) {
+  if (!SIEM_SYSLOG_HOST) return Promise.resolve({ skipped: "syslog" });
+  const payload = `<134>${new Date().toISOString()} ${alert.host || "opxdr"} OPXDR ${process.pid} - - ${syslogPayload(alert)}`;
+  if (SIEM_SYSLOG_PROTO === "tcp") {
+    return new Promise((resolve, reject) => {
+      const socket = net.createConnection({ host: SIEM_SYSLOG_HOST, port: SIEM_SYSLOG_PORT }, () => {
+        socket.end(payload + "\n");
+        resolve({ ok: true, sink: "syslog-tcp" });
+      });
+      socket.on("error", reject);
+      socket.setTimeout(5000, () => { socket.destroy(); reject(new Error("syslog tcp timeout")); });
+    });
+  }
+  return new Promise((resolve, reject) => {
+    const client = dgram.createSocket("udp4");
+    client.send(Buffer.from(payload), SIEM_SYSLOG_PORT, SIEM_SYSLOG_HOST, (err) => {
+      client.close();
+      err ? reject(err) : resolve({ ok: true, sink: "syslog-udp" });
+    });
+  });
+}
+
+async function postJson(url, body, headers = {}) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body), agent: insecureAgent });
+  if (!r.ok) throw new Error(`${url} -> ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  return { ok: true };
+}
+
+async function sendSplunk(alert) {
+  if (!SPLUNK_HEC_URL || !SPLUNK_HEC_TOKEN) return { skipped: "splunk" };
+  return postJson(SPLUNK_HEC_URL, { time: Date.parse(alert.time || new Date()) / 1000, host: alert.host, source: "opxdr:testfire", sourcetype: "opxdr:alert", index: SPLUNK_HEC_INDEX, event: normalizedSiemEvent(alert) }, { Authorization: `Splunk ${SPLUNK_HEC_TOKEN}` });
+}
+
+async function sendElastic(alert) {
+  if (!ELASTIC_INGEST_URL) return { skipped: "elastic" };
+  const headers = {};
+  if (ELASTIC_API_KEY) headers.Authorization = `ApiKey ${ELASTIC_API_KEY}`;
+  else if (ELASTIC_USERNAME || ELASTIC_PASSWORD) headers.Authorization = `Basic ${Buffer.from(`${ELASTIC_USERNAME}:${ELASTIC_PASSWORD}`).toString("base64")}`;
+  return postJson(ELASTIC_INGEST_URL, normalizedSiemEvent(alert), headers);
+}
+
+function sentinelSignature(date, contentLength, method, contentType, resource) {
+  const xHeaders = `x-ms-date:${date}`;
+  const stringToHash = `${method}\n${contentLength}\n${contentType}\n${xHeaders}\n${resource}`;
+  const decodedKey = Buffer.from(SENTINEL_SHARED_KEY, "base64");
+  const encodedHash = crypto.createHmac("sha256", decodedKey).update(stringToHash, "utf8").digest("base64");
+  return `SharedKey ${SENTINEL_WORKSPACE_ID}:${encodedHash}`;
+}
+
+async function sendSentinel(alert) {
+  if (!SENTINEL_WORKSPACE_ID || !SENTINEL_SHARED_KEY) return { skipped: "sentinel" };
+  const body = JSON.stringify([normalizedSiemEvent(alert)]);
+  const date = new Date().toUTCString();
+  const resource = "/api/logs";
+  const url = `https://${SENTINEL_WORKSPACE_ID}.ods.opinsights.azure.com${resource}?api-version=2016-04-01`;
+  const headers = { "Content-Type": "application/json", "Log-Type": SENTINEL_LOG_TYPE, "x-ms-date": date, Authorization: sentinelSignature(date, Buffer.byteLength(body), "POST", "application/json", resource) };
+  const r = await fetch(url, { method: "POST", headers, body, agent: insecureAgent });
+  if (!r.ok) throw new Error(`Sentinel -> ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  return { ok: true };
+}
+
+async function sendQradar(alert) {
+  if (!QRADAR_INGEST_URL) return { skipped: "qradar" };
+  const headers = QRADAR_TOKEN ? { SEC: QRADAR_TOKEN } : {};
+  const r = await fetch(QRADAR_INGEST_URL, { method: "POST", headers: { "Content-Type": "text/plain", ...headers }, body: toLeef(alert), agent: insecureAgent });
+  if (!r.ok) throw new Error(`QRadar -> ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  return { ok: true };
+}
+
+async function sendChronicle(alert) {
+  if (!CHRONICLE_INGEST_URL || !CHRONICLE_TOKEN) return { skipped: "chronicle" };
+  return postJson(CHRONICLE_INGEST_URL, normalizedSiemEvent(alert), { Authorization: `Bearer ${CHRONICLE_TOKEN}` });
+}
+
+async function forwardAlertToSiems(alert) {
+  if (!SIEM_FORWARD_ENABLED) return;
+  const sinks = [sendSyslog, sendSplunk, sendElastic, sendSentinel, sendQradar, sendChronicle];
+  const results = await Promise.allSettled(sinks.map((fn) => fn(alert)));
+  for (const r of results) {
+    if (r.status === "rejected") console.warn("[siem-forward]", r.reason.message);
+  }
+}
+
+function splitArgs(value) {
+  return String(value || "")
+    .match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map((s) => s.replace(/^['"]|['"]$/g, "")) || [];
+}
+
+function expandTestfireArgs(template, rule) {
+  const repl = {
+    ruleId: rule.wazuhRuleId || rule.id || "",
+    id: rule.id || rule.wazuhRuleId || "",
+    name: rule.name || "",
+    severity: rule.severity || "HIGH",
+    tactic: rule.tactic || "-",
+    mitre: rule.mitre || "-",
+    file: rule.file || "",
+    filePath: rule.filePath || "",
+  };
+  return splitArgs(template || "{ruleId}").map((arg) =>
+    arg.replace(/\{(ruleId|id|name|severity|tactic|mitre|file|filePath)\}/g, (_, k) => repl[k])
+  );
+}
+
+function defaultTestfireCommand(rule) {
+  const command = process.env.TESTFIRE_COMMAND || path.join(__dirname, "..", "scripts", "testfire");
+  const args = expandTestfireArgs(process.env.TESTFIRE_ARGS || "{ruleId} --wazuh --inject", rule);
+  return { command, args, env: { OPXDR_TESTFIRE_RULE: JSON.stringify(rule) } };
+}
+
+function resolveTestfireRule(id, bodyRule = {}, allRules = []) {
+  return allRules.find((r) => r.id === id || r.wazuhRuleId === id) || {
+    ...bodyRule,
+    id: bodyRule.id || id,
+    wazuhRuleId: bodyRule.wazuhRuleId || id,
+  };
+}
+
+function runTestfireCommand(rule, override = {}) {
+  const defaults = defaultTestfireCommand(rule);
+  const defaultCommand = path.resolve(defaults.command);
+  const requestedCommand = override.command ? path.resolve(String(override.command)) : defaultCommand;
+  const allowCommandOverride = process.env.ALLOW_TESTFIRE_COMMAND_OVERRIDE === "true";
+  if (requestedCommand !== defaultCommand && !allowCommandOverride) {
+    throw new Error("Command override disabled. Set ALLOW_TESTFIRE_COMMAND_OVERRIDE=true to allow custom binaries.");
+  }
+  const args = Array.isArray(override.args) ? override.args.map(String) : defaults.args;
+  const envRule = override.rule ? JSON.stringify(override.rule) : defaults.env.OPXDR_TESTFIRE_RULE;
+  const env = { ...process.env, OPXDR_TESTFIRE_RULE: envRule };
+  return new Promise((resolve, reject) => {
+    const child = spawn(requestedCommand, args, { env });
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (d) => { stdout += d.toString(); });
+    child.stderr?.on("data", (d) => { stderr += d.toString(); });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve({ command: requestedCommand, args, stdout: stdout.slice(0, 4000), stderr: stderr.slice(0, 4000) });
+      else reject(new Error(`${command} exited ${code}: ${(stderr || stdout).slice(0, 500)}`));
+    });
+  });
+}
+
+app.get("/api/rules/:id/testfire", async (req, res) => {
+  const all = (await loadLocalRules()).concat(await loadWazuhApiRules());
+  const rule = resolveTestfireRule(req.params.id, {}, all);
+  const command = defaultTestfireCommand(rule);
+  res.json({ ok: true, rule, command: { command: command.command, args: command.args }, rulePayload: JSON.parse(command.env.OPXDR_TESTFIRE_RULE) });
+});
+
+app.post("/api/rules/:id/testfire", async (req, res) => {
+  const bodyRule = req.body?.rule || {};
+  const editedRule = req.body?.rulePayload || req.body?.editedRule || null;
+  const all = (await loadLocalRules()).concat(await loadWazuhApiRules());
+  const rule = editedRule || resolveTestfireRule(req.params.id, bodyRule, all);
+
+  let commandResult = null;
+  let commandError = null;
+  try {
+    commandResult = await runTestfireCommand(rule, { command: req.body?.command, args: req.body?.args, rule: editedRule });
+  } catch (e) {
+    commandError = e.message;
+  }
+
+  if (commandResult && process.env.TESTFIRE_INJECT_AFTER_COMMAND !== "true") {
+    return res.json({ ok: true, mode: "command", ruleId: rule.wazuhRuleId || rule.id, command: commandResult });
+  }
+
+  const alert = createInjectedAlert({
+    ruleId: rule.wazuhRuleId || rule.id,
+    ruleName: rule.name || `Testfire ${rule.id || req.params.id}`,
+    severity: rule.severity || "HIGH",
+    level: rule.level,
+    tactic: rule.tactic,
+    mitre: rule.mitre,
+    host: "soc-admin",
+    agentId: "000",
+    location: "OPXDR Detection Registry",
+    decoder: "opxdr-testfire",
+    groups: Array.isArray(rule.groups) ? rule.groups : [rule.group || "testfire"].filter(Boolean),
+    iocs: [{ t: "RuleID", v: String(rule.wazuhRuleId || rule.id || req.params.id) }],
+    fullLog: `OPXDR testfire for rule ${rule.wazuhRuleId || rule.id || req.params.id}: ${rule.name || "Unnamed rule"}`,
+    testfire: true,
+    command: commandResult,
+    commandError,
+  });
+
+  res.json({ ok: true, mode: commandResult ? "command+inject" : "simulated", ruleId: rule.wazuhRuleId || rule.id, command: commandResult, commandError, alert });
+});
+
+app.post("/api/alerts/inject", (req, res) => {
+  const b = req.body || {};
+  if (!b.ruleName && !b.ruleId) return res.status(400).json({ error: "ruleName or ruleId required" });
+  const alert = createInjectedAlert(b);
   res.json({ ok: true, id: alert.id, alert });
+});
+
+// ─── Persistent high/critical alert store ─────────────────────────────────
+app.get("/api/alerts/persisted", (req, res) => {
+  const limit = parseInt(req.query.limit || "10000", 10);
+  const sliced = persistedAlerts.slice(-limit).reverse();
+  res.json({ alerts: sliced, count: sliced.length, total: persistedAlerts.length });
 });
 
 // ─── AI provider helpers (shared by /api/claude proxy + auto-report) ─────
@@ -683,7 +1837,7 @@ async function callAi({ system, messages, max_tokens = 1200 }) {
   const key = process.env.OCZ_API_KEY || process.env.OPENCODE_API_KEY;
   if (!key) throw new Error("No AI key configured — set OCZ_API_KEY or OPENCODE_API_KEY in .env");
   const base = (process.env.OCZ_BASE_URL || "https://opencode.ai/zen/v1").replace(/\/+$/, "");
-  const models = ["nemotron-3-super-free", "minimax-m2.5-free", "hy3-preview-free"];
+  const models = ["nemotron-3-ultra-free", "deepseek-v4-flash-free", "minimax-m3-free"];
   const msgs = system ? [{ role: "system", content: system }, ...messages] : messages;
   let lastErr;
   for (const model of models) {
@@ -837,20 +1991,21 @@ function streamOpenCodeEvents(evtRes, sessionId, expressRes) {
 // Claude Haiku is added as a secondary fallback for the validation agent only (small, cheap).
 //
 // Free model strengths:
-//   - nemotron-3-super-free (NVIDIA Nemotron 3 Super 120B): excellent reasoning, large context
-//                                                            → investigate, slackReport, irPlaybook, ruleAssistant
-//   - minimax-m2.5-free (MiniMax M2.7, 460B MoE):           strong instruction following, fast
-//                                                            → logAnalysis, validate
-//   - hy3-preview-free (stealth Hy3):                        backup
-//   - ling-2.6-flash-free (InclusionAI Ling 2.6 Flash):      backup
-//   - big-pickle (DeepSeek-V4 Flash stealth):                backup, very fast
+//   - nemotron-3-ultra-free (NVIDIA Nemotron 3 Ultra 120B): excellent reasoning, large context
+//                                                           → investigate, slackReport, irPlaybook, ruleAssistant
+//   - deepseek-v4-flash-free (DeepSeek V4 Flash):           fast reasoning, good all-rounder
+//                                                           → logAnalysis, validate
+//   - minimax-m3-free (MiniMax M3, 460B MoE):               strong instruction following, fast
+//                                                           → logAnalysis, validate
+//   - qwen3.6-plus-free (Qwen 3.6 Plus):                    backup
+//   - big-pickle (DeepSeek-V4 Flash stealth):               backup, very fast
 const AGENT_CFG = {
-  investigate:   { models: ["nemotron-3-super-free", "minimax-m2.5-free", "hy3-preview-free"],         tokens: 4096 },
-  logAnalysis:   { models: ["minimax-m2.5-free",     "ling-2.6-flash-free", "big-pickle"],             tokens: 2048 },
-  slackReport:   { models: ["nemotron-3-super-free", "minimax-m2.5-free", "hy3-preview-free"],         tokens: 4096 },
-  ruleAssistant: { models: ["nemotron-3-super-free", "minimax-m2.5-free", "hy3-preview-free"],         tokens: 3000 },
-  irPlaybook:    { models: ["nemotron-3-super-free", "minimax-m2.5-free", "hy3-preview-free"],         tokens: 6000 },
-  validate:      { models: ["nemotron-3-super-free", "minimax-m2.5-free", "claude-haiku-4-5"],         tokens: 4096 },
+  investigate:   { models: ["nemotron-3-ultra-free", "deepseek-v4-flash-free", "minimax-m3-free"],     tokens: 4096 },
+  logAnalysis:   { models: ["minimax-m3-free",       "qwen3.6-plus-free",      "big-pickle"],          tokens: 2048 },
+  slackReport:   { models: ["nemotron-3-ultra-free", "deepseek-v4-flash-free", "minimax-m3-free"],     tokens: 4096 },
+  ruleAssistant: { models: ["nemotron-3-ultra-free", "deepseek-v4-flash-free", "minimax-m3-free"],     tokens: 3000 },
+  irPlaybook:    { models: ["nemotron-3-ultra-free", "deepseek-v4-flash-free", "minimax-m3-free"],     tokens: 6000 },
+  validate:      { models: ["nemotron-3-ultra-free", "deepseek-v4-flash-free", "claude-haiku-4-5"],    tokens: 4096 },
 };
 
 // Errors that should trigger fallback to the next model
@@ -1242,49 +2397,51 @@ app.post("/api/agent", async (req, res) => {
 });
 
 // ─── Slack notifications ──────────────────────────────────────────────────
-const SEV_COLORS = { CRITICAL: "#dc2626", HIGH: "#f97316", MEDIUM: "#fbbf24", LOW: "#64748b" };
 const SEV_EMOJI = { CRITICAL: ":rotating_light:", HIGH: ":warning:", MEDIUM: ":large_orange_diamond:", LOW: ":small_blue_diamond:" };
 
 function buildSlackPayload(alert, reportText) {
   const sev = alert.severity || "HIGH";
-  const color = SEV_COLORS[sev] || SEV_COLORS.HIGH;
   const emoji = SEV_EMOJI[sev] || ":warning:";
-  const iocLine = (alert.iocs || []).map((i) => `[${i.t}] ${i.v}`).join("  ") || "—";
-  const headline = `${emoji} *${sev}* — ${alert.ruleName} (\`${alert.ruleId}\`)`;
-  const fields = [
-    { title: "Tactic", value: alert.tactic || "—", short: true },
-    { title: "MITRE", value: alert.mitre || "—", short: true },
-    { title: "Source IP", value: alert.srcIp || "—", short: true },
-    { title: "Dest IP", value: alert.dstIp || "—", short: true },
-    { title: "Account", value: alert.account || "—", short: true },
-    { title: "Host", value: alert.host || "—", short: true },
-    { title: "IOCs", value: iocLine, short: false },
+  const escaped = (s) => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const iocLine = (alert.iocs || []).map((i) => `• \`${escaped(i.t)}\` ${escaped(i.v)}`).join("\n") || "—";
+
+  const blocks = [
+    { type: "header", text: { type: "plain_text", text: `${emoji} ${sev} Alert: ${escaped(alert.ruleName)}` } },
+    { type: "divider" },
+    {
+      type: "section",
+      fields: [
+        { type: "mrkdwn", text: `*Tactic*\n${alert.tactic || "—"}` },
+        { type: "mrkdwn", text: `*MITRE*\n${alert.mitre || "—"}` },
+        { type: "mrkdwn", text: `*Source IP*\n${escaped(alert.srcIp)}` },
+        { type: "mrkdwn", text: `*Dest IP*\n${escaped(alert.dstIp)}` },
+        { type: "mrkdwn", text: `*Account*\n${escaped(alert.account)}` },
+        { type: "mrkdwn", text: `*Host*\n${escaped(alert.host)}` },
+      ],
+    },
+    { type: "section", text: { type: "mrkdwn", text: `*IOCs*\n${iocLine}` } },
   ];
-  const attachments = [{
-    color,
-    fallback: `${sev} ${alert.ruleName}`,
-    title: alert.ruleName,
-    text: headline,
-    fields,
-    footer: `OPXDR • alert ${alert.id} • ${alert.time}`,
-    mrkdwn_in: ["text", "fields"],
-  }];
+
   if (reportText) {
-    // Slack attachments cap each text field around 4k; truncate just in case.
     const trimmed = reportText.length > 3500 ? reportText.slice(0, 3500) + "\n…(truncated)" : reportText;
-    attachments.push({
-      color: "#38bdf8",
-      title: ":zap: AI Agent Report",
-      text: trimmed,
-      mrkdwn_in: ["text"],
-    });
+    blocks.push({ type: "divider" });
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*AI Agent Report*\n${trimmed}` } });
   }
+
+  blocks.push({ type: "divider" });
+  blocks.push({
+    type: "context",
+    elements: [
+      { type: "mrkdwn", text: `:shield: *OPXDR* • \`${escaped(alert.id)}\` • ${alert.time}` },
+    ],
+  });
+
   return {
     channel: SLACK_CHANNEL,
     username: SLACK_USERNAME,
     icon_emoji: ":shield:",
-    text: headline,
-    attachments,
+    text: `${emoji} ${sev} — ${escaped(alert.ruleName)}`,
+    blocks,
   };
 }
 
@@ -1307,6 +2464,133 @@ app.post("/api/slack/notify", async (req, res) => {
   if (!SLACK_WEBHOOK_URL) return res.status(503).json({ error: "SLACK_WEBHOOK_URL not configured in .env" });
   try { await postToSlack(alert, report || ""); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── Document share to Slack ──────────────────────────────────────────────
+function slackMd(text) {
+  return (text || "")
+    .replace(/^#{1,6}\s+(.+)$/gm, "*$1*")
+    .replace(/^---+$/gm, "")
+    .trim();
+}
+
+function buildDocSlackPayload(doc) {
+  const blocks = [];
+  const escaped = (s) => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  blocks.push({
+    type: "header",
+    text: { type: "plain_text", text: `📄 ${escaped(doc.title || "Untitled Document")}` },
+  });
+  blocks.push({ type: "divider" });
+
+  const meta = [
+    `*ID* \`${escaped(doc.id)}\``,
+    `*Created* ${new Date(doc.created).toLocaleString()}`,
+  ];
+  if (doc.alert?.severity) {
+    const em = doc.alert.severity === "CRITICAL" ? ":rotating_light:" : doc.alert.severity === "HIGH" ? ":warning:" : ":large_orange_diamond:";
+    meta.push(`${em} *${doc.alert.severity}*`);
+  }
+  if (doc.alert?.ruleName) meta.push(`*Alert* ${escaped(doc.alert.ruleName)}`);
+  const src = doc.messages ? "Agent Investigation" : doc.report ? "Geo/Intel Report" : "Document";
+  meta.push(`*Source* ${src}`);
+  blocks.push({ type: "section", text: { type: "mrkdwn", text: meta.join("  •  ") } });
+
+  let content = doc.report || "";
+  if (!content && doc.messages) {
+    content = doc.messages
+      .filter((m) => m.role === "assistant")
+      .map((m) => m.content)
+      .join("\n\n---\n\n");
+  }
+  if (content) {
+    content = slackMd(content);
+    blocks.push({ type: "divider" });
+    const lines = content.split("\n");
+    const chunks = [];
+    let cur = [];
+    let curLen = 0;
+    for (const line of lines) {
+      const l = line + "\n";
+      if (curLen + l.length > 2900) { chunks.push(cur.join("")); cur = [l]; curLen = l.length; }
+      else { cur.push(l); curLen += l.length; }
+    }
+    if (cur.length) chunks.push(cur.join(""));
+    for (const chunk of chunks.slice(0, 5)) {
+      blocks.push({ type: "section", text: { type: "mrkdwn", text: chunk.trim() } });
+    }
+    if (chunks.length > 5) {
+      blocks.push({ type: "section", text: { type: "mrkdwn", text: `_…and ${chunks.length - 5} more sections — open OPXDR for the full report._` } });
+    }
+  } else {
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: "_No report content in this document._" } });
+  }
+
+  blocks.push({ type: "divider" });
+  blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: ":shield: *OPXDR* • Shared from Reports" }] });
+
+  return { channel: SLACK_CHANNEL, username: SLACK_USERNAME, icon_emoji: ":shield:", blocks };
+}
+
+app.post("/api/slack/share", async (req, res) => {
+  const { doc } = req.body || {};
+  if (!doc || !doc.id) return res.status(400).json({ error: "doc object required" });
+  if (!SLACK_WEBHOOK_URL) return res.status(503).json({ error: "SLACK_WEBHOOK_URL not configured in .env" });
+  try {
+    const body = buildDocSlackPayload(doc);
+    const r = await fetch(SLACK_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`Slack ${r.status}: ${await r.text()}`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Document persistence ─────────────────────────────────────────────────
+const PERSISTED_DOCS_FILE = path.join(__dirname, "..", ".persisted-docs.json");
+let persistedDocs = [];
+
+function loadPersistedDocs() {
+  try {
+    if (fs.existsSync(PERSISTED_DOCS_FILE)) {
+      const raw = fs.readFileSync(PERSISTED_DOCS_FILE, "utf-8");
+      persistedDocs = JSON.parse(raw);
+      if (!Array.isArray(persistedDocs)) persistedDocs = [];
+      console.log(`[docs] loaded ${persistedDocs.length} documents from disk`);
+    }
+  } catch (e) {
+    console.warn("[docs] could not load persisted docs:", e.message);
+    persistedDocs = [];
+  }
+}
+
+function savePersistedDocs() {
+  try {
+    fs.writeFileSync(PERSISTED_DOCS_FILE, JSON.stringify(persistedDocs, null, 2));
+  } catch (e) {
+    console.warn("[docs] could not save persisted docs:", e.message);
+  }
+}
+
+loadPersistedDocs();
+
+// GET /api/documents — return all persisted documents
+app.get("/api/documents", (_req, res) => {
+  res.json({ documents: persistedDocs, count: persistedDocs.length });
+});
+
+// POST /api/documents — replace the full document list (idempotent upsert)
+app.post("/api/documents", (req, res) => {
+  const { documents } = req.body || {};
+  if (!Array.isArray(documents)) return res.status(400).json({ error: "documents array required" });
+  persistedDocs = documents;
+  savePersistedDocs();
+  res.json({ ok: true, count: persistedDocs.length });
 });
 
 // GET /api/settings — what the frontend should know about
@@ -1417,56 +2701,98 @@ function safeName(s) {
   return String(s || "rule").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
 }
 
+
+function runLocalCommand(command, args, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, opts);
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (d) => { stdout += d.toString(); });
+    child.stderr?.on("data", (d) => { stderr += d.toString(); });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve({ stdout, stderr });
+      else reject(new Error(`${command} ${args.join(" ")} exited ${code}: ${(stderr || stdout).slice(0, 500)}`));
+    });
+  });
+}
+
 async function tryWriteWazuh(filename, xml) {
-  // Try direct filesystem write to /var/ossec/etc/rules; if denied, fall back to API.
   const target = path.join(WAZUH_RULES_DIR, filename);
   try {
-    await fsp.writeFile(target, xml, { mode: 0o660 });
+    await fsp.writeFile(target, xml, { mode: 0o640 });
     return { method: "fs", path: target };
-  } catch (e) {
-    // Fall back to Wazuh API: PUT /manager/files?path=etc/rules/<file>&overwrite=true
+  } catch (fsErr) {
     try {
-      const token = await wazuhAuth();
-      const u = new URL(`${WAZUH_API_URL}/manager/files`);
-      u.searchParams.set("path", `etc/rules/${filename}`);
-      u.searchParams.set("overwrite", "true");
-      const res = await fetch(u, {
-        method: "PUT",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/octet-stream" },
-        body: xml,
-        agent: insecureAgent,
-      });
-      if (!res.ok) throw new Error(`API write failed ${res.status}: ${await res.text()}`);
-      return { method: "api", path: `etc/rules/${filename}` };
-    } catch (apiErr) {
-      throw new Error(`fs error: ${e.message} | api error: ${apiErr.message}`);
+      const tmpPath = path.join(os.tmpdir ? os.tmpdir() : "/tmp", `opxdr-${process.pid}-${Date.now()}-${filename}`);
+      await fsp.writeFile(tmpPath, xml, "utf8");
+      await runLocalCommand("sudo", ["-n", "install", "-m", "0640", "-o", "root", "-g", "wazuh", tmpPath, target]);
+      try { await fsp.unlink(tmpPath); } catch {}
+      return { method: "sudo-install", path: target };
+    } catch (sudoErr) {
+      try {
+        const token = await wazuhAuth();
+        const u = new URL(`${WAZUH_API_URL}/manager/files`);
+        u.searchParams.set("path", `etc/rules/${filename}`);
+        u.searchParams.set("overwrite", "true");
+        const res = await fetch(u, {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/octet-stream" },
+          body: xml,
+          agent: insecureAgent,
+        });
+        if (!res.ok) throw new Error(`API write failed ${res.status}: ${await res.text()}`);
+        return { method: "api", path: `etc/rules/${filename}` };
+      } catch (apiErr) {
+        throw new Error(`fs error: ${fsErr.message} | sudo error: ${sudoErr.message} | api error: ${apiErr.message}`);
+      }
     }
   }
 }
 
 async function restartWazuh() {
-  const token = await wazuhAuth();
-  const res = await fetch(`${WAZUH_API_URL}/manager/restart`, {
-    method: "PUT",
-    headers: { Authorization: `Bearer ${token}` },
-    agent: insecureAgent,
-  });
-  if (!res.ok) throw new Error(`restart failed ${res.status}: ${await res.text()}`);
-  return res.json();
+  try {
+    const token = await wazuhAuth();
+    const res = await fetch(`${WAZUH_API_URL}/manager/restart`, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}` },
+      agent: insecureAgent,
+    });
+    if (!res.ok) throw new Error(`restart failed ${res.status}: ${await res.text()}`);
+    return { method: "api", data: await res.json() };
+  } catch (apiErr) {
+    await runLocalCommand("sudo", ["-n", "systemctl", "restart", "wazuh-manager"]);
+    return { method: "systemctl", api_error: apiErr.message };
+  }
 }
 
 // POST /api/rules/custom
-// body: { ruleId, name, severity, tactic, mitre, xml, yaml, group }
+// body: { ruleId, name, severity, tactic, mitre, xml, yaml, group, savePath, format }
 app.post("/api/rules/custom", async (req, res) => {
-  const { ruleId, name, severity = "HIGH", tactic = "Defense Evasion", mitre = "", xml, yaml, group = "custom_detection" } = req.body || {};
+  const { ruleId, name, severity = "HIGH", tactic = "Defense Evasion", mitre = "", xml, yaml, group = "custom_detection", savePath, format = "xml" } = req.body || {};
   if (!ruleId || !xml) return res.status(400).json({ error: "ruleId and xml are required" });
 
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  const fileBase = `custom_${safeName(group)}_${safeName(ruleId)}_${stamp}.xml`;
+  const ext = format === "sigma" ? "yml" : format === "yara" ? "yar" : "xml";
+  const fileBase = `custom_${safeName(group)}_${safeName(ruleId)}_${stamp}.${ext}`;
 
-  // 1. Save in our custom dir (always works, source of truth for the app)
-  const customPath = path.join(CUSTOM_RULES_DIR, fileBase);
+  // 1. Save to requested savePath if provided and accessible, else fall back to CUSTOM_RULES_DIR
+  let targetDir = CUSTOM_RULES_DIR;
+  if (savePath && savePath !== "__custom__") {
+    try {
+      await fsp.mkdir(savePath, { recursive: true });
+      targetDir = savePath;
+    } catch (e) {
+      console.warn(`[rules/custom] savePath ${savePath} inaccessible, falling back: ${e.message}`);
+    }
+  }
+  const customPath = path.join(targetDir, fileBase);
   await fsp.writeFile(customPath, xml, "utf8");
+
+  // Also always mirror to CUSTOM_RULES_DIR for app tracking (unless that IS the targetDir)
+  if (targetDir !== CUSTOM_RULES_DIR) {
+    try { await fsp.writeFile(path.join(CUSTOM_RULES_DIR, fileBase), xml, "utf8"); } catch {}
+  }
 
   // 2. Save IR playbook YAML alongside if provided
   let yamlPath = null;
@@ -1539,7 +2865,7 @@ function execCmd(cmd, opts = {}) {
 }
 
 app.post("/api/rule/trigger", async (req, res) => {
-  const { ruleId, ruleName, file, tactic, mitre, severity } = req.body || {};
+  const { ruleId, ruleName, file, tactic, mitre, severity, preview, cmd: existingCmd } = req.body || {};
   if (!ruleId) return res.status(400).json({ error: "ruleId required" });
 
   try {
@@ -1551,33 +2877,69 @@ app.post("/api/rule/trigger", async (req, res) => {
       for (const dir of searchDirs) {
         const fp = path.join(dir, file);
         if (fs.existsSync(fp)) { foundPath = fp; break; }
-        // Search recursively by filename
         const all = await walk(dir);
         const m = all.find(f => f.endsWith("/" + file) || f.endsWith("\\" + file));
         if (m) { foundPath = m; break; }
       }
       if (foundPath) {
         ruleContent = await fsp.readFile(foundPath, "utf-8");
-        ruleContent = ruleContent.slice(0, 3000); // keep context manageable
+        ruleContent = ruleContent.slice(0, 3000);
       }
     }
 
-    // 2. AI generates a test command based on the rule
-    const sysPrompt = "You are an adversary emulation engine. Given a SOC detection rule, generate a SINGLE realistic but safe bash command that would trigger this rule in Wazuh. "
-      + "Use: logger (for log-based rules), curl/wget (for web rules), nc/ssh (for network rules), or similar. "
-      + "Return ONLY the raw command — no markdown, no backticks, no explanation. The command must be a single line.";
+    // If this is an execution call (preview=false), use the existing cmd instead of regenerating
+    let cmd = existingCmd || "";
+    let summary = "";
 
-    const userMsg = `Generate a test trigger command for this rule:\nID: ${ruleId}\nName: ${ruleName}\nFile: ${file || "—"}\nTactic: ${tactic || "—"}\nMITRE: ${mitre || "—"}\nSeverity: ${severity || "—"}\n\nRule content:\n${ruleContent || "(not found on disk)"}`;
+    if (!cmd) {
+      // 2a. AI generates a test command + summary explanation
+      const genSys = "You are an adversary emulation engine. Given a SOC detection rule, output a JSON object.\n"
+        + "Do NOT explain, reason, or add any text outside the JSON.\n"
+        + "The JSON object must have exactly two string fields:\n"
+        + '  "command": a single executable bash command (e.g. logger, curl, nc, ssh, echo)\n'
+        + '  "summary": 1-2 sentences describing what the command simulates\n'
+        + 'Example output: {"command":"logger -t sshd \\"Failed password for root\\"","summary":"Writes a fake SSH failure to syslog to trigger the brute-force rule."}\n'
+        + 'Output ONLY the JSON object, nothing else.';
 
-    const cmd = (await callAi({ system: sysPrompt, messages: [{ role: "user", content: userMsg }], max_tokens: 500 }))
-      .replace(/```(?:bash|sh)?\n?/gi, "").trim().split("\n")[0];
+      let userMsg = `Generate test trigger for:\nID: ${ruleId}\nName: ${ruleName}\nFile: ${file || "—"}\nTactic: ${tactic || "—"}\nMITRE: ${mitre || "—"}\nSeverity: ${severity || "—"}\n\nRule content:\n${ruleContent || "(not found on disk)"}`;
+      const { userInput } = req.body || {};
+      if (userInput) userMsg += `\n\nUser refinement: ${userInput}`;
 
-    if (!cmd || cmd.length < 3) throw new Error("AI did not generate a valid command");
+      const aiRaw = await callAi({ system: genSys, messages: [{ role: "user", content: userMsg }], max_tokens: 600 });
+
+      // Extract JSON object from anywhere in the response (handles models that prepend reasoning text)
+      let parsed = null;
+      const jsonMatch = aiRaw.match(/\{[\s\S]*?\}/);
+      if (jsonMatch) {
+        try { parsed = JSON.parse(jsonMatch[0]); } catch { /* fall through */ }
+      }
+      if (!parsed) {
+        try { parsed = JSON.parse(aiRaw.replace(/```(?:json)?\n?/gi, "").trim()); } catch { /* fall through */ }
+      }
+      if (parsed) {
+        cmd = (parsed.command || "").trim();
+        summary = (parsed.summary || "").trim();
+      }
+
+      // Validate cmd looks like a shell command (not reasoning text)
+      const looksLikeCmd = cmd && cmd.length >= 3 && /^[a-zA-Z0-9_\/\.\-]/.test(cmd) && !/^(we |i |the |this |to |you |output|generate|here)/i.test(cmd);
+      if (!looksLikeCmd) {
+        // Last-resort: find a line that looks like a bash command
+        const cmdLine = aiRaw.split("\n").find(l => /^(logger|echo|curl|nc|ssh|sudo|bash|sh|python|perl|ruby|nmap|wget|kill|systemctl|journalctl|auditctl|touch|mkdir|rm|cat|printf|openssl)\b/.test(l.trim()));
+        if (cmdLine) { cmd = cmdLine.trim(); summary = summary || ""; }
+        else throw new Error("AI did not generate a valid command");
+      }
+    }
+
+    // Preview mode: return command + summary without executing
+    if (preview) {
+      return res.json({ ok: true, cmd, summary, preview: true });
+    }
 
     // 3. Execute the command (timeboxed, sandboxed)
     const execResult = await execCmd(cmd);
 
-    // 4. Also inject an alert so it appears immediately in OPXDR
+    // 4. Inject alert so it appears immediately in OPXDR
     const sevOrder = { LOW: 1, MEDIUM: 5, HIGH: 8, CRITICAL: 12 };
     const lvl = sevOrder[severity] || 8;
     const ts = new Date().toISOString();
@@ -1593,7 +2955,7 @@ app.post("/api/rule/trigger", async (req, res) => {
     if (injectedAlerts.length > 500) injectedAlerts.shift();
     alertEmitter.emit("alert", alert);
 
-    res.json({ ok: true, id: uid, cmd, stdout: execResult.stdout?.slice(0, 1000), stderr: execResult.stderr?.slice(0, 500) });
+    res.json({ ok: true, id: uid, cmd, summary, stdout: execResult.stdout?.slice(0, 1000), stderr: execResult.stderr?.slice(0, 500) });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1819,4 +3181,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`  Slack     : ${SLACK_WEBHOOK_URL ? `enabled (${SLACK_CHANNEL})` : "(disabled — set SLACK_WEBHOOK_URL)"}`);
   console.log(`  AI auto   : ${AI_AUTO_REPORT ? `on (min level ${AI_AUTO_REPORT_MIN_LEVEL})` : "off"}`);
   if (AI_AUTO_REPORT) startAutoReportTail();
+  loadPersistedAlerts();
+  backfillHighCriticalAlerts();
+  setInterval(pollHighCriticalAlerts, 60_000);
 });
