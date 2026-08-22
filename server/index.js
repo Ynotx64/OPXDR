@@ -365,7 +365,11 @@ async function readLatestSiemTelemetryByAgent() {
 
 app.get("/api/agents", async (req, res) => {
   try {
-    const j = await wazuh("/agents", { limit: parseInt(req.query.limit || "500", 10), offset: 0 });
+    let wazuhError = null;
+    const j = await wazuh("/agents", { limit: parseInt(req.query.limit || "500", 10), offset: 0 }).catch(e => {
+      wazuhError = e;
+      return { data: { affected_items: [] } };
+    });
     const items = j?.data?.affected_items || [];
     const summary = await wazuh("/agents/summary/status").catch(() => ({}));
     const latestSiem = await readLatestSiemTelemetryByAgent();
@@ -432,6 +436,7 @@ app.get("/api/agents", async (req, res) => {
       agents,
       status_summary: summary?.data?.affected_items || {},
       total: items.length,
+      warning: wazuhError ? `Wazuh unavailable; showing OPXDR telemetry agents only: ${wazuhError.message}` : null,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
