@@ -30,7 +30,7 @@ dotenv.config();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DATA_DIR = path.join(__dirname, "data");
 const SIEM_AGENT_TELEMETRY_LOG = path.join(SERVER_DATA_DIR, "siem-agent-telemetry.jsonl");
-const OPXDR_SIEM_AGENT_VERSION = "opxdr-siem-agent/1.0.0";
+const OPXDR_SIEM_AGENT_VERSION = "opxdr-siem-agent/1.1.0";
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
@@ -768,6 +768,14 @@ OPXDR_SERVER = ${pyServerUrl}.rstrip("/")
 INTERVAL = int(os.environ.get("OPXDR_SIEM_INTERVAL", "30"))
 WATCH_PATHS = ["/etc/passwd", "/etc/group", "/etc/ssh/sshd_config", "/etc/sudoers"]
 AUTH_LOGS = ["/var/log/auth.log", "/var/log/secure"]
+HONEYPOT_LOGS = [
+    "/home/cowrie/cowrie/var/log/cowrie/cowrie.json",
+    "/home/cowrie/cowrie/var/log/cowrie/cowrie.log",
+    "/opt/cowrie/var/log/cowrie/cowrie.json",
+    "/opt/cowrie/var/log/cowrie/cowrie.log",
+    "/var/log/cowrie/cowrie.json",
+    "/var/log/cowrie/cowrie.log",
+]
 
 def clean(value, limit=500):
     text = str(value if value is not None else "-").replace("\\n", " ").replace("\\r", " ")
@@ -820,6 +828,43 @@ def auth_snapshot():
                 events.append({"path": path, "line": clean(line, 320)})
     return events[-40:]
 
+def honeypot_snapshot():
+    events = []
+    src_ips = set()
+    auth_failures = 0
+    commands = []
+    for path in HONEYPOT_LOGS:
+        if not os.path.exists(path):
+            continue
+        for line in run(["tail", "-n", "200", path]).splitlines():
+            low = line.lower()
+            if not any(n in low for n in ("cowrie.", "login", "failed", "command", "connection", "direct-tcpip")):
+                continue
+            item = {"path": path, "line": clean(line, 500)}
+            try:
+                parsed = json.loads(line)
+                item["eventid"] = parsed.get("eventid")
+                item["src_ip"] = parsed.get("src_ip")
+                item["username"] = parsed.get("username")
+                item["input"] = parsed.get("input")
+                if parsed.get("src_ip"):
+                    src_ips.add(str(parsed.get("src_ip")))
+                if "login.failed" in str(parsed.get("eventid", "")):
+                    auth_failures += 1
+                if parsed.get("input"):
+                    commands.append(clean(parsed.get("input"), 120))
+            except Exception:
+                pass
+            events.append(item)
+    return {
+        "events": events[-80:],
+        "event_count": len(events),
+        "source_ips": sorted(src_ips)[:40],
+        "source_ip_count": len(src_ips),
+        "auth_failures": auth_failures,
+        "commands": commands[-20:],
+    }
+
 def payload(kind):
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     uptime = None
@@ -849,12 +894,14 @@ def payload(kind):
         "processes": process_snapshot(),
         "network": network_snapshot(),
         "auth": auth_snapshot(),
+        "honeypot": honeypot_snapshot(),
         "files": [sha256_file(p) for p in WATCH_PATHS],
     }
 
 def emit(data):
     top_ports = ",".join([clean(x, 80).split()[4] if len(clean(x, 80).split()) > 4 else clean(x, 80) for x in (data.get("network") or [])[:12]])
-    summary = "OPXDR_SIEM_TELEMETRY agent_id=%s agent_name=%s agent_version=%s schema=%s kind=%s host=%s ip=%s processes=%s listeners=%s active_ports=%s auth_events=%s files=%s" % (
+    hp = data.get("honeypot") or {}
+    summary = "OPXDR_SIEM_TELEMETRY agent_id=%s agent_name=%s agent_version=%s schema=%s kind=%s host=%s ip=%s processes=%s listeners=%s active_ports=%s auth_events=%s honeypot_events=%s honeypot_src_ips=%s auth_failures=%s honeypot_commands=%s files=%s" % (
         clean(data.get("agent_id")),
         clean(data.get("agent_name")),
         clean(data.get("agent_version")),
@@ -866,6 +913,10 @@ def emit(data):
         len(data.get("network") or []),
         clean(top_ports, 260),
         len(data.get("auth") or []),
+        int(hp.get("event_count") or 0),
+        int(hp.get("source_ip_count") or 0),
+        int(hp.get("auth_failures") or 0),
+        len(hp.get("commands") or []),
         len(data.get("files") or []),
     )
     syslog.syslog(syslog.LOG_INFO, summary)
@@ -938,7 +989,8 @@ app.post(["/api/opxdr-siem-agent/telemetry", "/api/siem-agent/telemetry"], async
       marker: "OPXDR_SIEM_TELEMETRY",
     };
     await fsp.appendFile(SIEM_AGENT_TELEMETRY_LOG, JSON.stringify(event) + "\n");
-    res.json({ ok: true, receivedAt: event.receivedAt });
+    const detections = evaluateSiemTelemetryDetections(event);
+    res.json({ ok: true, receivedAt: event.receivedAt, detections: detections.map(a => ({ id: a.id, ruleId: a.ruleId, severity: a.severity })) });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1556,6 +1608,145 @@ function recordInjectedAlert(alert) {
 
 function createInjectedAlert(b) {
   return recordInjectedAlert(buildInjectedAlert(b));
+}
+
+function buildDetectedAlert(b = {}) {
+  const alert = buildInjectedAlert(b);
+  alert.id = b.id || alert.id.replace(/^INJ-/, "DET-");
+  alert.injected = false;
+  alert.raw = b.raw || b;
+  return alert;
+}
+
+function recordDetectedAlert(alert) {
+  const exists = (a) => a.id === alert.id;
+  if (injectedAlerts.some(exists) || persistedAlerts.some(exists)) return alert;
+  injectedAlerts.push(alert);
+  if (injectedAlerts.length > 500) injectedAlerts.shift();
+  if (alert.severity !== "LOW") {
+    persistedAlerts.push(alert);
+    if (persistedAlerts.length > 10000) persistedAlerts = persistedAlerts.slice(-10000);
+    savePersistedAlerts();
+  }
+  alertEmitter.emit("alert", alert);
+  forwardAlertToSiems(alert).catch((e) => console.warn("[siem-forward]", e.message));
+  console.log(`[detect] ${alert.severity} - ${alert.ruleName}`);
+  return alert;
+}
+
+function telemetryWindowId(ts = new Date()) {
+  const t = new Date(ts);
+  const ms = Number.isFinite(t.getTime()) ? t.getTime() : Date.now();
+  return new Date(Math.floor(ms / 300000) * 300000).toISOString().replace(/[^0-9]/g, "").slice(0, 12);
+}
+
+function createTelemetryDetection({ event, ruleId, ruleName, severity, tactic, mitre, groups = [], fullLog, iocs = [] }) {
+  const ts = event.receivedAt || event.time || new Date().toISOString();
+  const agentId = String(event.agent_id || event.agentId || "unknown");
+  const id = `TEL-${ruleId}-${agentId}-${telemetryWindowId(ts)}`;
+  return recordDetectedAlert(buildDetectedAlert({
+    id,
+    ruleId: `OPXDR-${ruleId}`,
+    ruleName,
+    severity,
+    tactic,
+    mitre,
+    time: ts,
+    srcIp: event.honeypot?.source_ips?.[0] || event.ip || "-",
+    dstIp: event.ip || "-",
+    account: event.honeypot?.events?.find(e => e.username)?.username || "-",
+    host: event.agent_name || event.hostname || agentId,
+    agentId,
+    agentIp: event.ip,
+    location: "OPXDR agent telemetry",
+    decoder: "opxdr-siem-agent",
+    groups,
+    iocs,
+    fullLog,
+    raw: { telemetry: event },
+  }));
+}
+
+function evaluateSiemTelemetryDetections(event = {}) {
+  const detections = [];
+  const agentId = String(event.agent_id || event.agentId || "");
+  const hp = event.honeypot || {};
+  const hpEvents = Number(hp.event_count || 0);
+  const hpSrcIps = Number(hp.source_ip_count || 0);
+  const hpAuthFailures = Number(hp.auth_failures || 0);
+  const commands = Array.isArray(hp.commands) ? hp.commands.filter(Boolean) : [];
+  const authEvents = Array.isArray(event.auth) ? event.auth.length : 0;
+  const networkEntries = Array.isArray(event.network) ? event.network : [];
+
+  if (hpEvents > 0) {
+    detections.push(createTelemetryDetection({
+      event,
+      ruleId: "209306",
+      ruleName: "OPXDR honeypot traffic observed on cloud agent",
+      severity: "MEDIUM",
+      tactic: "Initial Access",
+      mitre: "T1110,T1021.004",
+      groups: ["opxdr_siem", "honeypot", "real_telemetry", "medium"],
+      iocs: (hp.source_ips || []).slice(0, 6).map(ip => ({ t: "IP", v: ip })),
+      fullLog: `OPXDR_SIEM_DETECTION agent_id=${agentId} honeypot_events=${hpEvents} honeypot_src_ips=${hpSrcIps}`,
+    }));
+  }
+
+  if (hpAuthFailures >= 5 || hpSrcIps >= 3) {
+    detections.push(createTelemetryDetection({
+      event,
+      ruleId: "209307",
+      ruleName: "Honeypot authentication failure burst or source diversity",
+      severity: "HIGH",
+      tactic: "Credential Access",
+      mitre: "T1110,T1021.004",
+      groups: ["opxdr_siem", "honeypot", "credential_access", "high"],
+      iocs: (hp.source_ips || []).slice(0, 8).map(ip => ({ t: "IP", v: ip })),
+      fullLog: `OPXDR_SIEM_DETECTION agent_id=${agentId} auth_failures=${hpAuthFailures} source_ip_count=${hpSrcIps}`,
+    }));
+  }
+
+  if (commands.length > 0) {
+    detections.push(createTelemetryDetection({
+      event,
+      ruleId: "209308",
+      ruleName: "Honeypot captured interactive command activity",
+      severity: "HIGH",
+      tactic: "Execution",
+      mitre: "T1059,T1021.004",
+      groups: ["opxdr_siem", "honeypot", "execution", "high"],
+      iocs: commands.slice(0, 6).map(cmd => ({ t: "CMD", v: cmd })),
+      fullLog: `OPXDR_SIEM_DETECTION agent_id=${agentId} honeypot_commands=${commands.length}`,
+    }));
+  }
+
+  if (authEvents >= 20) {
+    detections.push(createTelemetryDetection({
+      event,
+      ruleId: "209303",
+      ruleName: "OPXDR SIEM agent authentication telemetry burst",
+      severity: "MEDIUM",
+      tactic: "Credential Access",
+      mitre: "T1110",
+      groups: ["opxdr_siem", "auth", "medium"],
+      fullLog: `OPXDR_SIEM_DETECTION agent_id=${agentId} auth_events=${authEvents}`,
+    }));
+  }
+
+  if (networkEntries.length >= 25) {
+    detections.push(createTelemetryDetection({
+      event,
+      ruleId: "209441",
+      ruleName: "Contextual network service diversity observed by OPXDR agent",
+      severity: "MEDIUM",
+      tactic: "Discovery",
+      mitre: "T1049,T1046",
+      groups: ["opxdr_siem", "network", "flow", "medium"],
+      fullLog: `OPXDR_SIEM_DETECTION agent_id=${agentId} listeners=${networkEntries.length}`,
+    }));
+  }
+
+  return detections.filter(Boolean);
 }
 
 function siemCategory(alert) {
