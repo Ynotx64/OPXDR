@@ -1,0 +1,187 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+@import "leaflet/dist/leaflet.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Base ──────────────────────────────────────────────────────────────── */
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-bg-0 text-ink-1 font-sans antialiased;
+    font-feature-settings: "cv11", "ss01", "ss03";
+  }
+  * { box-sizing: border-box; }
+
+  /* Scrollbars — slim & dark */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2a3150; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a4360; }
+}
+
+/* ── Components ────────────────────────────────────────────────────────── */
+@layer components {
+  /* Card panel — the grey rounded box used throughout */
+  .panel {
+    @apply bg-bg-1 border border-border rounded-lg shadow-panel;
+  }
+  .panel-header {
+    @apply px-4 py-3 border-b border-border flex items-center justify-between;
+  }
+  .panel-title {
+    @apply text-2xs font-semibold tracking-[0.15em] text-ink-3 uppercase;
+  }
+
+  /* Sidebar nav item */
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2 rounded-md text-sm text-ink-2
+           hover:bg-bg-2 hover:text-ink-0 transition-colors cursor-pointer
+           relative;
+  }
+  .nav-item.active {
+    @apply bg-bg-2 text-ink-0;
+  }
+  .nav-item.active::before {
+    content: "";
+    @apply absolute left-0 top-1 bottom-1 w-0.5 bg-brand rounded-r;
+  }
+  .nav-section {
+    @apply text-3xs font-semibold tracking-[0.2em] text-ink-4 uppercase
+           px-3 pt-5 pb-2;
+  }
+
+  /* Badges */
+  .badge {
+    @apply inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs
+           font-mono font-semibold tracking-wide;
+  }
+  .badge-critical { @apply bg-sev-critical/15 text-sev-critical border border-sev-critical/30; }
+  .badge-high     { @apply bg-sev-high/15 text-sev-high border border-sev-high/30; }
+  .badge-medium   { @apply bg-sev-medium/15 text-sev-medium border border-sev-medium/30; }
+  .badge-low      { @apply bg-sev-low/15 text-sev-low border border-sev-low/30; }
+  .badge-info     { @apply bg-sev-info/15 text-sev-info border border-sev-info/30; }
+
+  /* Stat card (top of dashboard) */
+  .stat-card {
+    @apply bg-bg-1 border border-border rounded-lg px-4 py-3
+           flex items-center justify-between gap-3;
+  }
+  .stat-label { @apply text-3xs uppercase tracking-[0.18em] text-ink-3 font-medium; }
+  .stat-value { @apply text-lg font-bold text-ink-0 tabular-nums; }
+  .stat-sub   { @apply text-2xs text-ink-3 mt-0.5; }
+
+  /* Live dot */
+  .live-dot {
+    @apply inline-block w-1.5 h-1.5 rounded-full bg-live;
+    box-shadow: 0 0 0 0 currentColor;
+    animation: pulse-ring 2s infinite;
+  }
+  @keyframes pulse-ring {
+    0%   { box-shadow: 0 0 0 0    rgba(34, 197, 94, 0.5); }
+    70%  { box-shadow: 0 0 0 6px  rgba(34, 197, 94, 0);   }
+    100% { box-shadow: 0 0 0 0    rgba(34, 197, 94, 0);   }
+  }
+
+  /* Toggle switch */
+  .toggle {
+    @apply relative w-9 h-5 rounded-full bg-bg-3 border border-border
+           cursor-pointer transition-colors flex-shrink-0;
+  }
+  .toggle.on { @apply bg-brand border-brand/60; }
+  .toggle-knob {
+    @apply absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-white
+           transition-transform shadow;
+  }
+  .toggle.on .toggle-knob { transform: translateX(16px); }
+
+  /* Generic button */
+  .btn {
+    @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md
+           text-xs font-semibold transition-colors;
+  }
+  .btn-ghost { @apply bg-transparent text-ink-2 hover:bg-bg-2 hover:text-ink-0; }
+  .btn-brand { @apply bg-brand text-white hover:bg-brand/90; }
+  .btn-accent { @apply bg-brand-accent text-white hover:bg-brand-accent/90; }
+  .btn-outline { @apply border border-border text-ink-1 hover:border-border-strong hover:bg-bg-2; }
+}
+
+/* ── Threat map shell ──────────────────────────────────────────────────── */
+.threat-map-shell {
+  background:
+    radial-gradient(circle at center, rgba(80, 0, 140, 0.14), transparent 45%),
+    #02030a;
+  border: 1px solid rgba(140, 60, 255, 0.25);
+  box-shadow:
+    inset 0 0 80px rgba(90, 0, 160, 0.18),
+    0 0 35px rgba(120, 40, 255, 0.12);
+}
+
+/* ── Leaflet overrides — dark cyber theme ──────────────────────────────── */
+.leaflet-container {
+  background: #02030a !important;
+  font-family: inherit !important;
+}
+.leaflet-tile-pane {
+  filter: brightness(0.72) contrast(1.28) saturate(0.75);
+}
+.leaflet-control-zoom a {
+  background: #141828 !important;
+  color: #cbd5e1 !important;
+  border-color: #2a3150 !important;
+}
+.leaflet-control-zoom a:hover { background: #1a1f33 !important; }
+.leaflet-control-attribution {
+  background: rgba(0, 0, 0, 0.35) !important;
+  color: rgba(255, 255, 255, 0.35) !important;
+  font-size: 9px !important;
+}
+.leaflet-control-attribution a { color: rgba(255, 255, 255, 0.45) !important; }
+
+/* Attack arc marker pulse */
+.threat-marker {
+  border-radius: 50%;
+  position: relative;
+}
+.threat-marker::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  opacity: 0.6;
+  animation: ring-pulse 2s ease-out infinite;
+}
+@keyframes ring-pulse {
+  0%   { transform: scale(0.5); opacity: 0.9; }
+  100% { transform: scale(2);   opacity: 0;   }
+}
+
+/* ── Cesium viewer dark theme overrides ──────────────────────────────── */
+.cesium-viewer {
+  background: #02030a !important;
+}
+.cesium-viewer .cesium-widget-credits {
+  display: none !important;
+}
+.cesium-viewer .cesium-viewer-bottom {
+  display: none !important;
+}
+.cesium-viewer .cesium-widget {
+  background: #02030a !important;
+}
+.cesium-scene-canvas {
+  background: #02030a !important;
+}
+.cesium-performanceDisplay-default-container {
+  display: none !important;
+}
+.cesium-viewer .cesium-widget canvas:focus {
+  outline: none;
+}
+.cesium-widget,
+.cesium-widget canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
