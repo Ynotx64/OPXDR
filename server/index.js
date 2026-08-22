@@ -30,7 +30,7 @@ dotenv.config();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DATA_DIR = path.join(__dirname, "data");
 const SIEM_AGENT_TELEMETRY_LOG = path.join(SERVER_DATA_DIR, "siem-agent-telemetry.jsonl");
-const OPXDR_SIEM_AGENT_VERSION = "opxdr-siem-agent/1.1.0";
+const OPXDR_SIEM_AGENT_VERSION = "opxdr-siem-agent/1.1.1";
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
@@ -775,6 +775,8 @@ HONEYPOT_LOGS = [
     "/opt/cowrie/var/log/cowrie/cowrie.log",
     "/var/log/cowrie/cowrie.json",
     "/var/log/cowrie/cowrie.log",
+    "/var/log/syslog",
+    "/var/log/messages",
 ]
 
 def clean(value, limit=500):
@@ -833,29 +835,38 @@ def honeypot_snapshot():
     src_ips = set()
     auth_failures = 0
     commands = []
+    lines = []
     for path in HONEYPOT_LOGS:
         if not os.path.exists(path):
             continue
         for line in run(["tail", "-n", "200", path]).splitlines():
-            low = line.lower()
-            if not any(n in low for n in ("cowrie.", "login", "failed", "command", "connection", "direct-tcpip")):
-                continue
-            item = {"path": path, "line": clean(line, 500)}
-            try:
-                parsed = json.loads(line)
-                item["eventid"] = parsed.get("eventid")
-                item["src_ip"] = parsed.get("src_ip")
-                item["username"] = parsed.get("username")
-                item["input"] = parsed.get("input")
-                if parsed.get("src_ip"):
-                    src_ips.add(str(parsed.get("src_ip")))
-                if "login.failed" in str(parsed.get("eventid", "")):
-                    auth_failures += 1
-                if parsed.get("input"):
-                    commands.append(clean(parsed.get("input"), 120))
-            except Exception:
-                pass
-            events.append(item)
+            lines.append((path, line))
+    for line in run(["journalctl", "-u", "opxdr-honeypot.service", "-n", "200", "--no-pager"]).splitlines():
+        lines.append(("journalctl:opxdr-honeypot.service", line))
+    for path, line in lines:
+        low = line.lower()
+        if not any(n in low for n in ("opxdr_honeypot", "cowrie.", "login", "failed", "command", "connection", "direct-tcpip")):
+            continue
+        item = {"path": path, "line": clean(line, 500)}
+        try:
+            parsed = json.loads(line)
+            item["eventid"] = parsed.get("eventid")
+            item["src_ip"] = parsed.get("src_ip")
+            item["username"] = parsed.get("username")
+            item["input"] = parsed.get("input")
+            if parsed.get("src_ip"):
+                src_ips.add(str(parsed.get("src_ip")))
+            if "login.failed" in str(parsed.get("eventid", "")):
+                auth_failures += 1
+            if parsed.get("input"):
+                commands.append(clean(parsed.get("input"), 120))
+        except Exception:
+            for token in line.split():
+                if token.startswith("remote=") and token.split("=", 1)[1] not in ("0.0.0.0", "-", "unknown"):
+                    src_ips.add(token.split("=", 1)[1])
+            if "login.failed" in low or "failed password" in low:
+                auth_failures += 1
+        events.append(item)
     return {
         "events": events[-80:],
         "event_count": len(events),
