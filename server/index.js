@@ -1075,25 +1075,42 @@ import socket
 import syslog
 import threading
 import time
+import urllib.parse
 
 SERVICES = json.loads(${pyServiceJson})
 AGENT_ID = ${pyAgentId}
 OPXDR_SERVER = ${pyServerUrl}
 STOP = threading.Event()
+DECOY_ROOT = "/opt/opxdr-honeypot/decoys"
 
 BANNERS = {
-    "ssh": b"SSH-2.0-OpenSSH_8.9p1 Ubuntu-3\\r\\n",
-    "ftp": b"220 OPXDR FTP service ready\\r\\n",
-    "smtp": b"220 mail.local ESMTP Postfix\\r\\n",
+    "ssh": b"SSH-2.0-OpenSSH_8.9p1 Ubuntu-3\\r\\nlogin: ",
+    "ftp": b"220 files-backup01 FTP service ready\\r\\nName (files-backup01:anonymous): ",
+    "smtp": b"220 mail-gateway01 ESMTP Postfix\\r\\n",
     "smb": b"\\x00\\x00\\x00\\x55SMB honeypot negotiation required\\r\\n",
 }
 
-HTTP_RESPONSE = (b"HTTP/1.1 401 Unauthorized\\r\\n"
-                 b"Server: nginx/1.18.0\\r\\n"
-                 b"Content-Type: text/plain\\r\\n"
-                 b"Connection: close\\r\\n"
-                 b"WWW-Authenticate: Basic realm=admin\\r\\n\\r\\n"
-                 b"authentication required\\n")
+DECOY_FILES = {
+    "backup/db-backup-2026-08-23.sql": "-- OPXDR DECOY ONLY - NOT REAL DATA\\n-- canary_id=OPXDR-CANARY-DB-001\\nCREATE USER 'backup_reader'@'%' IDENTIFIED BY 'not-a-real-password';\\n",
+    "backup/vpn-users.csv": "user,role,last_login,canary_id\\nsvc-backup,readonly,2026-08-20,OPXDR-CANARY-VPN-002\\n",
+    "config/.env": "OPXDR_DECOY=true\\nCANARY_ID=OPXDR-CANARY-ENV-003\\nAWS_ACCESS_KEY_ID=AKIAFAKEDECOY000000\\nAWS_SECRET_ACCESS_KEY=not-a-real-secret-do-not-use\\n",
+    "config/id_rsa": "-----BEGIN OPXDR DECOY PRIVATE KEY-----\\nCANARY_ID=OPXDR-CANARY-SSH-004\\nnot-a-real-private-key\\n-----END OPXDR DECOY PRIVATE KEY-----\\n",
+    "config/kubernetes-admin.conf": "apiVersion: v1\\nkind: Config\\ncurrent-context: opxdr-decoy\\nusers:\\n- name: decoy-admin\\n  user:\\n    token: OPXDR-CANARY-K8S-005-NOT-A-REAL-TOKEN\\n",
+}
+
+HTTP_LURES = {
+    "/": ("text/html", "<html><head><title>Edge Gateway</title></head><body><h1>Edge Gateway</h1><p>Authentication required.</p><a href='/admin/login'>Admin login</a></body></html>"),
+    "/admin": ("text/html", "<html><head><title>Admin Console</title></head><body><h1>Admin Console</h1><form method='post' action='/admin/login'><input name='username' placeholder='username'><input name='password' type='password' placeholder='password'><button>Sign in</button></form></body></html>"),
+    "/admin/login": ("text/html", "<html><head><title>Admin Console</title></head><body><h1>Admin Console</h1><p>Invalid session. Sign in again.</p><form method='post'><input name='username' placeholder='username'><input name='password' type='password' placeholder='password'><button>Sign in</button></form></body></html>"),
+    "/backup/": ("text/html", "<html><head><title>Index of /backup/</title></head><body><h1>Index of /backup/</h1><a href='/backup/db-backup-2026-08-23.sql'>db-backup-2026-08-23.sql</a><br><a href='/backup/vpn-users.csv'>vpn-users.csv</a></body></html>"),
+    "/backup/db-backup-2026-08-23.sql": ("text/plain", DECOY_FILES["backup/db-backup-2026-08-23.sql"]),
+    "/backup/vpn-users.csv": ("text/csv", DECOY_FILES["backup/vpn-users.csv"]),
+    "/.env": ("text/plain", DECOY_FILES["config/.env"]),
+    "/config/.env": ("text/plain", DECOY_FILES["config/.env"]),
+    "/id_rsa": ("text/plain", DECOY_FILES["config/id_rsa"]),
+    "/.ssh/id_rsa": ("text/plain", DECOY_FILES["config/id_rsa"]),
+    "/kubernetes-admin.conf": ("text/plain", DECOY_FILES["config/kubernetes-admin.conf"]),
+}
 
 def clean(value):
     text = str(value or "-").replace("\\n", " ").replace("\\r", " ")
@@ -1121,14 +1138,39 @@ def emit(service, port, remote, payload):
     syslog.syslog(syslog.LOG_INFO, msg)
     print(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), msg, flush=True)
 
+def write_decoy_files():
+    os.makedirs(DECOY_ROOT, exist_ok=True)
+    for rel, body in DECOY_FILES.items():
+        path = os.path.join(DECOY_ROOT, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(body)
+        os.chmod(path, 0o640)
+    emit("filesystem", 0, "0.0.0.0", "decoy_files_ready canary_ids=OPXDR-CANARY-DB-001,OPXDR-CANARY-VPN-002,OPXDR-CANARY-ENV-003,OPXDR-CANARY-SSH-004,OPXDR-CANARY-K8S-005")
+
+def http_response(payload):
+    text = payload.decode("utf-8", "replace") if isinstance(payload, bytes) else str(payload or "")
+    first = text.split("\\n", 1)[0].strip()
+    parts = first.split()
+    method = parts[0].upper() if parts else "GET"
+    raw_path = parts[1] if len(parts) > 1 else "/"
+    path = urllib.parse.urlparse(raw_path).path or "/"
+    content_type, body = HTTP_LURES.get(path, ("text/html", "<html><head><title>401 Unauthorized</title></head><body><h1>401 Unauthorized</h1><p>Authentication required.</p></body></html>"))
+    status = "200 OK" if path in HTTP_LURES else "401 Unauthorized"
+    marker = ""
+    if path in HTTP_LURES and path not in ("/", "/admin", "/admin/login", "/backup/"):
+        marker = " canary_access=true canary_path=%s" % clean(path, 120)
+    return (("HTTP/1.1 %s\\r\\nServer: nginx/1.18.0\\r\\nContent-Type: %s\\r\\nConnection: close\\r\\nWWW-Authenticate: Basic realm=admin\\r\\nContent-Length: %d\\r\\n\\r\\n%s" % (status, content_type, len(body.encode("utf-8")), body)).encode("utf-8"), "http_method=%s request_path=%s%s raw=%s" % (clean(method, 16), clean(path, 140), marker, clean(first, 180)))
+
 def handle_client(service, port, conn, addr):
     remote = addr[0] if addr else "unknown"
     try:
         conn.settimeout(4)
         if service == "http":
             payload = conn.recv(2048)
-            emit(service, port, remote, payload)
-            conn.sendall(HTTP_RESPONSE)
+            response, summary = http_response(payload)
+            emit(service, port, remote, summary)
+            conn.sendall(response)
             return
         banner = BANNERS.get(service, b"OPXDR honeypot service ready\\r\\n")
         if banner:
@@ -1172,6 +1214,7 @@ def shutdown(_signum, _frame):
 
 signal.signal(signal.SIGTERM, shutdown)
 signal.signal(signal.SIGINT, shutdown)
+write_decoy_files()
 threads = []
 for spec in SERVICES:
     t = threading.Thread(target=listener, args=(spec,), daemon=True)

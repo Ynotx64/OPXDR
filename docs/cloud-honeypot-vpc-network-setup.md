@@ -357,6 +357,33 @@ Verification observed:
 - `opxdr-honeypot-dmz` posted OPXDR SIEM telemetry to the collector.
 - Honeypot listeners started for SSH, HTTP, FTP, SMB lure, and SMTP lure.
 - Telemetry showed `agent_id=opxdr-honeypot-dmz`, `ip=10.77.0.2`, and `agent_version=opxdr-siem-agent/1.1.1`.
+- Honeypot telemetry now labels source class and external status with `public_source_ip_count`, `source_classes`, and `real_external`.
+
+Implemented decoy content:
+
+- Realistic SSH, FTP, SMTP, SMB, and HTTP banners.
+- Fake HTTP admin login pages:
+  - `/admin`
+  - `/admin/login`
+- Fake backup directory and files:
+  - `/backup/`
+  - `/backup/db-backup-2026-08-23.sql`
+  - `/backup/vpn-users.csv`
+- Fake exposed config paths:
+  - `/.env`
+  - `/config/.env`
+  - `/id_rsa`
+  - `/.ssh/id_rsa`
+  - `/kubernetes-admin.conf`
+- Local fake canary files under `/opt/opxdr-honeypot/decoys`.
+- Canary IDs are OPXDR decoys only and do not contain real secrets:
+  - `OPXDR-CANARY-DB-001`
+  - `OPXDR-CANARY-VPN-002`
+  - `OPXDR-CANARY-ENV-003`
+  - `OPXDR-CANARY-SSH-004`
+  - `OPXDR-CANARY-K8S-005`
+
+The honeypot logs HTTP request paths, canary file access, attempted credentials or payload previews, source class, and `real_external` status. Internal validation and loopback traffic must remain `real_external=false`.
 
 Current blocker:
 
