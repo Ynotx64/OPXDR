@@ -1,6 +1,6 @@
-# SOC Detection Briefs: August 21-22, 2026
+# SOC Detection Briefs: August 21-23, 2026
 
-This document captures OPXDR detection engineering notes for the August 21 and August 22 SOC detection briefs. It separates source-driven detection logic from lab validation so replayed or fixture events are never confused with real telemetry.
+This document captures OPXDR detection engineering notes for the August 21 through August 23 SOC detection briefs. It separates source-driven detection logic from lab validation so replayed or fixture events are never confused with real telemetry.
 
 ## Detection Tiers
 
@@ -200,9 +200,123 @@ Detection content:
 
 False-positive notes: Some forensic and administrative tools can perform memory dumps. Critical severity requires LSASS target context and dump-file creation, not command-line text alone.
 
+## August 23 Brief
+
+### Honeypot Telemetry as Evidence, Not Internet Exposure
+
+Sources: Microsoft, "Inside an AI-enabled device code phishing campaign," April 6, 2026; Microsoft, "OAuth redirection abuse enables phishing and malware delivery," March 2, 2026; Microsoft, "CaptiveCrunch: Midnight Blizzard targets travelers worldwide for malware delivery and credential theft," July 31, 2026.
+
+Direct links:
+
+- https://www.microsoft.com/en-us/security/blog/2026/04/06/ai-enabled-device-code-phishing-campaign-april-2026/
+- https://www.microsoft.com/en-us/security/blog/2026/03/02/oauth-redirection-abuse-enables-phishing-malware-delivery/
+- https://www.microsoft.com/en-us/security/blog/2026/07/31/captivecrunch-midnight-blizzard-targets-travelers-worldwide-for-malware-delivery-and-credential-theft/
+
+Why it matters: Current identity attacks blend user interaction, OAuth/device-code flows, new device registration, and Microsoft Graph access. OPXDR should correlate honeypot, identity, and flow evidence, but it should not expose lab honeypots directly to the public internet or label controlled probes as live attackers.
+
+Telemetry needed:
+
+- Honeypot listener journal lines tagged `OPXDR_HONEYPOT`.
+- OPXDR SIEM agent telemetry with `honeypot_events`, `honeypot_src_ips`, `auth_failures`, and `honeypot_commands`.
+- Identity telemetry for device-code auth, OAuth grants, new device registration, unusual ASN, first-seen redirect domains, and Graph/mailbox/file access.
+- Flow context for new peers, destination diversity, failed connection bursts, and outbound-byte acceleration.
+
+Detection content:
+
+- `209306`: Medium honeypot traffic observed on cloud agent.
+- `209307`: High honeypot source diversity or authentication failure burst.
+- `209308`: High honeypot command activity.
+- `209431`: Medium identity-flow abuse signal.
+- `209432`: High correlated identity abuse plus unusual origin plus Graph/mailbox/file access.
+
+OPXDR-style lab experiment: Keep the cloud honeypot VM private, reachable only from the lab VPC or IAP-controlled administration path. Generate a controlled connection from the collector VM to the honeypot private IP on approved honeypot ports, wait one SIEM-agent heartbeat, and confirm OPXDR creates `209306`. Record the source as synthetic internal lab traffic unless an independently observed external source appears in real telemetry.
+
+False-positive notes: Listener startup messages, internal health checks, vulnerability scanners, and synthetic validation probes are not live attacker evidence. Escalate only when source novelty, auth failures, captured commands, or post-compromise telemetry is present.
+
+### Windows Event 5145 Volume Needs Behavior Context
+
+Sources: Microsoft Security Auditing Event 5145 reference; Microsoft Advanced Audit Policy Configuration guidance.
+
+Direct links:
+
+- https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-5145
+- https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/plan/security-best-practices/advanced-audit-policy-configuration
+
+Why it matters: Microsoft documents Event 5145 as detailed file-share access auditing and warns that detailed file-share auditing can produce high volume. OPXDR should therefore treat administrative-share writes as medium observations until short-window counts or z-scores exceed a measured baseline.
+
+Telemetry needed:
+
+- Event ID 5145 with source address, account, share name, relative target path, access mask, and outcome.
+- Five-minute aggregation features including `write_count`, unique files, unique hosts, and z-score.
+- Enrichment for backup, deployment, scanner, EDR, and administrator maintenance accounts.
+
+Detection content:
+
+- `209421`: Medium administrative-share write observation.
+- `209422`: High high-frequency administrative-share writes above behavioral threshold.
+
+OPXDR-style lab experiment: In a Windows-only lab, enable detailed file-share auditing on a test server, write a small number of benign files, then replay normalized fixture records with `write_count > 20` for `ADMIN$` or `C$`. Confirm only the aggregated fixture reaches high severity.
+
+False-positive notes: Normal Windows and application access can create many 5145 events. Tune on account, host role, share, process lineage, and maintenance windows instead of suppressing 5145 globally.
+
+### Linux SUID and SGID Changes Remain High-Value Persistence Signals
+
+Source: MITRE ATT&CK T1548.001, Setuid and Setgid.
+
+Direct link:
+
+- https://attack.mitre.org/techniques/T1548/001/
+
+Why it matters: MITRE documents setuid and setgid abuse as a way to execute code in another user or group context. OPXDR should alert on unexpected privileged-bit changes only when they differ from an approved baseline.
+
+Telemetry needed:
+
+- File integrity monitoring for privileged paths.
+- Privileged-binary baseline with mode, owner, group, package owner, and hash.
+- Package manager update context.
+- Audit or command telemetry for `chmod`, `chown`, package installs, and suspicious file creation.
+
+Detection content:
+
+- `209410`: Informational privileged-binary baseline telemetry.
+- `209411`: Medium baseline missing, altered, or tampered.
+- `209412`: Critical unauthorized SUID or SGID privilege-persistence change.
+
+OPXDR-style lab experiment: In a disposable Linux VM, create a harmless test file, emit normalized baseline telemetry, then set a SUID or SGID mode outside the allowlist. Confirm `209412` fires, remove the file, and verify the alert is clearly labeled as a lab event.
+
+False-positive notes: OS package updates can legitimately add or change privileged binaries. Treat package-context matches as reviewable until hash and package ownership are reconciled.
+
+### Zeek and Flow Windows Should Drive Network Context
+
+Sources: Zeek `conn.log` documentation; Zeek SMB logs documentation.
+
+Direct links:
+
+- https://docs.zeek.org/en/master/reference/logs/conn.html
+- https://docs.zeek.org/en/lts/logs/smb.html
+
+Why it matters: Zeek records connection state and byte counters across TCP, UDP, and ICMP-style flows, while SMB logs can tie file-write behavior to lateral movement context. OPXDR should use host-window features instead of isolated single-flow rules.
+
+Telemetry needed:
+
+- Zeek `conn.log` fields for originator, responder, ports, connection state, duration, packets, and bytes.
+- Zeek SMB/file events where available.
+- Five-minute features for new peers, service and destination diversity, failure bursts, and outbound-byte acceleration.
+- Asset labels for scanners, backups, update mirrors, and approved admin hosts.
+
+Detection content:
+
+- `209440`: Informational Zeek, NetFlow, or IPFIX telemetry baseline.
+- `209441`: Medium contextual flow anomaly.
+- `209442`: High correlated staged-intrusion flow behavior.
+
+OPXDR-style lab experiment: Use an isolated packet fixture or lab-only Zeek sensor to emit one benign host window and one staged host window with new peers, failures, and outbound-byte acceleration. Confirm only the multi-feature staged window maps to high severity.
+
+False-positive notes: Patch mirrors, vulnerability scanners, backup jobs, and content distribution can look like destination diversity or byte acceleration. Require asset labels and historical comparison before escalation.
+
 ## Current Real Telemetry Status
 
-At the time these rules were added, the live OPXDR SIEM agent on `soc-admin` was reporting real host telemetry heartbeats only. No real Siemens S7, Windows Event 5145, Entra/Graph, Zeek/IPFIX, Zimbra, TrueConf, or Sysmon event source was present in the OPXDR telemetry file. The rules are therefore registry-ready and Wazuh-validated, but they should be tuned against real event volume once those telemetry sources are connected.
+At the time these rules were added, the live OPXDR SIEM agent on `soc-admin` was reporting real host telemetry heartbeats only. During the cloud lab setup, `opxdr-honeypot` later reported `opxdr-siem-agent/1.1.1` telemetry with `honeypot_events=58`, `honeypot_src_ips=2`, and `auth_events=40` after controlled private lab validation; OPXDR displayed `TEL-209306-opxdr-honeypot-202608222105` as a medium alert. Those honeypot events include synthetic internal validation traffic and must not be described as live attacker activity. No real Siemens S7, Windows Event 5145, Entra/Graph, Zeek/IPFIX, Zimbra, TrueConf, or Sysmon event source was present in the local repository telemetry. The rules are therefore registry-ready and Wazuh-validated, but they should be tuned against real event volume once those telemetry sources are connected.
 
 ## Rollback
 
