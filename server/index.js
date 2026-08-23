@@ -752,6 +752,7 @@ function siemAgentInstallScript({ agentId, agentName, serverUrl }) {
   const pyServerUrl = JSON.stringify(serverUrl);
   const agentPy = `#!/usr/bin/env python3
 import hashlib
+import ipaddress
 import json
 import os
 import platform
@@ -830,9 +831,24 @@ def auth_snapshot():
                 events.append({"path": path, "line": clean(line, 320)})
     return events[-40:]
 
+def source_class(value):
+    try:
+        ip = ipaddress.ip_address(str(value))
+        if ip.is_loopback:
+            return "loopback"
+        if ip.is_private:
+            return "private_lab"
+        if ip.is_global:
+            return "public"
+        return "unknown"
+    except Exception:
+        return "unknown"
+
 def honeypot_snapshot():
     events = []
     src_ips = set()
+    public_src_ips = set()
+    source_classes = {}
     auth_failures = 0
     commands = []
     lines = []
@@ -848,6 +864,7 @@ def honeypot_snapshot():
         if not any(n in low for n in ("opxdr_honeypot", "cowrie.", "login", "failed", "command", "connection", "direct-tcpip")):
             continue
         item = {"path": path, "line": clean(line, 500)}
+        remote_ip = None
         try:
             parsed = json.loads(line)
             item["eventid"] = parsed.get("eventid")
@@ -855,7 +872,8 @@ def honeypot_snapshot():
             item["username"] = parsed.get("username")
             item["input"] = parsed.get("input")
             if parsed.get("src_ip"):
-                src_ips.add(str(parsed.get("src_ip")))
+                remote_ip = str(parsed.get("src_ip"))
+                src_ips.add(remote_ip)
             if "login.failed" in str(parsed.get("eventid", "")):
                 auth_failures += 1
             if parsed.get("input"):
@@ -863,15 +881,26 @@ def honeypot_snapshot():
         except Exception:
             for token in line.split():
                 if token.startswith("remote=") and token.split("=", 1)[1] not in ("0.0.0.0", "-", "unknown"):
-                    src_ips.add(token.split("=", 1)[1])
+                    remote_ip = token.split("=", 1)[1]
+                    src_ips.add(remote_ip)
             if "login.failed" in low or "failed password" in low:
                 auth_failures += 1
+        if remote_ip:
+            cls = source_class(remote_ip)
+            item["source_class"] = cls
+            source_classes[cls] = source_classes.get(cls, 0) + 1
+            if cls == "public":
+                public_src_ips.add(remote_ip)
         events.append(item)
     return {
         "events": events[-80:],
         "event_count": len(events),
         "source_ips": sorted(src_ips)[:40],
         "source_ip_count": len(src_ips),
+        "public_source_ips": sorted(public_src_ips)[:40],
+        "public_source_ip_count": len(public_src_ips),
+        "source_classes": source_classes,
+        "real_external": len(public_src_ips) > 0,
         "auth_failures": auth_failures,
         "commands": commands[-20:],
     }
@@ -912,7 +941,7 @@ def payload(kind):
 def emit(data):
     top_ports = ",".join([clean(x, 80).split()[4] if len(clean(x, 80).split()) > 4 else clean(x, 80) for x in (data.get("network") or [])[:12]])
     hp = data.get("honeypot") or {}
-    summary = "OPXDR_SIEM_TELEMETRY agent_id=%s agent_name=%s agent_version=%s schema=%s kind=%s host=%s ip=%s processes=%s listeners=%s active_ports=%s auth_events=%s honeypot_events=%s honeypot_src_ips=%s auth_failures=%s honeypot_commands=%s files=%s" % (
+    summary = "OPXDR_SIEM_TELEMETRY agent_id=%s agent_name=%s agent_version=%s schema=%s kind=%s host=%s ip=%s processes=%s listeners=%s active_ports=%s auth_events=%s honeypot_events=%s honeypot_src_ips=%s public_src_ips=%s real_external=%s auth_failures=%s honeypot_commands=%s files=%s" % (
         clean(data.get("agent_id")),
         clean(data.get("agent_name")),
         clean(data.get("agent_version")),
@@ -926,6 +955,8 @@ def emit(data):
         len(data.get("auth") or []),
         int(hp.get("event_count") or 0),
         int(hp.get("source_ip_count") or 0),
+        int(hp.get("public_source_ip_count") or 0),
+        str(bool(hp.get("real_external"))).lower(),
         int(hp.get("auth_failures") or 0),
         len(hp.get("commands") or []),
         len(data.get("files") or []),
@@ -1038,6 +1069,7 @@ function honeypotInstallScript({ agentId, services, serverUrl }) {
   const agentPy = `#!/usr/bin/env python3
 import json
 import os
+import ipaddress
 import signal
 import socket
 import syslog
@@ -1067,10 +1099,24 @@ def clean(value):
     text = str(value or "-").replace("\\n", " ").replace("\\r", " ")
     return text[:220]
 
+def source_class(value):
+    try:
+        ip = ipaddress.ip_address(str(value))
+        if ip.is_loopback:
+            return "loopback"
+        if ip.is_private:
+            return "private_lab"
+        if ip.is_global:
+            return "public"
+        return "unknown"
+    except Exception:
+        return "unknown"
+
 def emit(service, port, remote, payload):
     preview = clean(payload.decode("utf-8", "replace") if isinstance(payload, bytes) else payload)
-    msg = "OPXDR_HONEYPOT agent_id=%s service=%s port=%s proto=tcp remote=%s opxdr_server=%s preview=%s" % (
-        clean(AGENT_ID), clean(service), clean(port), clean(remote), clean(OPXDR_SERVER), preview
+    cls = source_class(remote)
+    msg = "OPXDR_HONEYPOT agent_id=%s service=%s port=%s proto=tcp remote=%s source_class=%s real_external=%s opxdr_server=%s preview=%s" % (
+        clean(AGENT_ID), clean(service), clean(port), clean(remote), clean(cls), str(cls == "public").lower(), clean(OPXDR_SERVER), preview
     )
     syslog.syslog(syslog.LOG_INFO, msg)
     print(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), msg, flush=True)
@@ -1663,7 +1709,7 @@ function createTelemetryDetection({ event, ruleId, ruleName, severity, tactic, m
     tactic,
     mitre,
     time: ts,
-    srcIp: event.honeypot?.source_ips?.[0] || event.ip || "-",
+    srcIp: event.honeypot?.public_source_ips?.[0] || event.honeypot?.source_ips?.[0] || event.ip || "-",
     dstIp: event.ip || "-",
     account: event.honeypot?.events?.find(e => e.username)?.username || "-",
     host: event.agent_name || event.hostname || agentId,
@@ -1684,8 +1730,17 @@ function evaluateSiemTelemetryDetections(event = {}) {
   const hp = event.honeypot || {};
   const hpEvents = Number(hp.event_count || 0);
   const hpSrcIps = Number(hp.source_ip_count || 0);
+  const hpPublicSrcIps = Number(hp.public_source_ip_count || 0);
   const hpAuthFailures = Number(hp.auth_failures || 0);
   const commands = Array.isArray(hp.commands) ? hp.commands.filter(Boolean) : [];
+  const hpEventRows = Array.isArray(hp.events) ? hp.events : [];
+  const publicRows = hpEventRows.filter(row => /source_class=public|real_external=true/.test(String(row.line || "")) || row.source_class === "public");
+  const realExternal = Boolean(hp.real_external || hpPublicSrcIps > 0 || publicRows.length > 0);
+  const publicIocs = (hp.public_source_ips || []).slice(0, 8).map(ip => ({ t: "IP", v: ip }));
+  const servicesTouched = new Set(publicRows.map(row => String(row.line || "").match(/service=([a-z0-9_-]+)/i)?.[1]).filter(Boolean));
+  const eventText = hpEventRows.map(row => String(row.line || "")).join("\n").toLowerCase();
+  const exploitMarker = /(\/admin|\/wp-login|\/\.env|\/etc\/passwd|jndi:|cmd=|powershell|wget|curl|busybox|chmod|base64|\.sh\b|\.elf\b)/i.test(eventText);
+  const malwareRetrieval = realExternal && /(curl|wget|tftp|ftp).*https?:\/\/|https?:\/\/.*(\.sh\b|\.elf\b|payload|bot|mirai|mozi)/i.test(eventText);
   const authEvents = Array.isArray(event.auth) ? event.auth.length : 0;
   const networkEntries = Array.isArray(event.network) ? event.network : [];
 
@@ -1697,23 +1752,51 @@ function evaluateSiemTelemetryDetections(event = {}) {
       severity: "MEDIUM",
       tactic: "Initial Access",
       mitre: "T1110,T1021.004",
-      groups: ["opxdr_siem", "honeypot", "real_telemetry", "medium"],
+      groups: ["opxdr_siem", "honeypot", realExternal ? "real_external" : "lab_or_synthetic", "medium"],
       iocs: (hp.source_ips || []).slice(0, 6).map(ip => ({ t: "IP", v: ip })),
-      fullLog: `OPXDR_SIEM_DETECTION agent_id=${agentId} honeypot_events=${hpEvents} honeypot_src_ips=${hpSrcIps}`,
+      fullLog: `OPXDR_SIEM_DETECTION agent_id=${agentId} honeypot_events=${hpEvents} honeypot_src_ips=${hpSrcIps} public_src_ips=${hpPublicSrcIps} real_external=${realExternal}`,
     }));
   }
 
-  if (hpAuthFailures >= 5 || hpSrcIps >= 3) {
+  if (realExternal) {
+    detections.push(createTelemetryDetection({
+      event,
+      ruleId: "209309",
+      ruleName: "Public internet source hit OPXDR honeypot decoy",
+      severity: "MEDIUM",
+      tactic: "Initial Access",
+      mitre: "T1190,T1595.002",
+      groups: ["opxdr_siem", "honeypot", "real_external", "medium"],
+      iocs: publicIocs,
+      fullLog: `OPXDR_SIEM_DETECTION agent_id=${agentId} real_external=true public_src_ips=${hpPublicSrcIps} services_touched=${servicesTouched.size || 1}`,
+    }));
+  }
+
+  if (hpAuthFailures >= 5 || hpSrcIps >= 3 || (realExternal && (servicesTouched.size >= 2 || exploitMarker))) {
     detections.push(createTelemetryDetection({
       event,
       ruleId: "209307",
-      ruleName: "Honeypot authentication failure burst or source diversity",
+      ruleName: realExternal ? "Correlated public honeypot behavior indicates active probing" : "Honeypot authentication failure burst or source diversity",
       severity: "HIGH",
       tactic: "Credential Access",
       mitre: "T1110,T1021.004",
-      groups: ["opxdr_siem", "honeypot", "credential_access", "high"],
-      iocs: (hp.source_ips || []).slice(0, 8).map(ip => ({ t: "IP", v: ip })),
-      fullLog: `OPXDR_SIEM_DETECTION agent_id=${agentId} auth_failures=${hpAuthFailures} source_ip_count=${hpSrcIps}`,
+      groups: ["opxdr_siem", "honeypot", realExternal ? "real_external" : "credential_access", "high"],
+      iocs: publicIocs.length ? publicIocs : (hp.source_ips || []).slice(0, 8).map(ip => ({ t: "IP", v: ip })),
+      fullLog: `OPXDR_SIEM_DETECTION agent_id=${agentId} real_external=${realExternal} auth_failures=${hpAuthFailures} source_ip_count=${hpSrcIps} public_src_ips=${hpPublicSrcIps} services_touched=${servicesTouched.size} exploit_marker=${exploitMarker}`,
+    }));
+  }
+
+  if (malwareRetrieval) {
+    detections.push(createTelemetryDetection({
+      event,
+      ruleId: "209310",
+      ruleName: "Critical isolated honeypot malware retrieval attempt",
+      severity: "CRITICAL",
+      tactic: "Command and Control",
+      mitre: "T1105,T1059",
+      groups: ["opxdr_siem", "honeypot", "real_external", "malware_retrieval", "critical"],
+      iocs: publicIocs,
+      fullLog: `OPXDR_SIEM_DETECTION agent_id=${agentId} real_external=true malware_retrieval_attempt=true contained_session=true`,
     }));
   }
 

@@ -62,18 +62,29 @@
     <if_sid>209300</if_sid>
     <regex>honeypot_events=[1-9][0-9]*</regex>
     <description>OPXDR honeypot traffic observed on cloud agent</description>
-    <group>opxdr_siem,honeypot,real_telemetry,medium,</group>
+    <group>opxdr_siem,honeypot,lab_or_external,medium,</group>
     <mitre>
       <id>T1110</id>
       <id>T1021.004</id>
     </mitre>
   </rule>
 
+  <rule id="209309" level="8">
+    <if_sid>209300</if_sid>
+    <regex>real_external=true.*public_src_ips=[1-9][0-9]*|public_src_ips=[1-9][0-9]*.*real_external=true</regex>
+    <description>Public internet source hit OPXDR honeypot decoy</description>
+    <group>opxdr_siem,honeypot,real_external,medium,</group>
+    <mitre>
+      <id>T1190</id>
+      <id>T1595.002</id>
+    </mitre>
+  </rule>
+
   <rule id="209307" level="10">
     <if_sid>209300</if_sid>
-    <regex>honeypot_src_ips=[3-9][0-9]*|auth_failures=([5-9]|[1-9][0-9]+)</regex>
-    <description>Honeypot authentication failure burst or source diversity</description>
-    <group>opxdr_siem,honeypot,credential_access,high,</group>
+    <regex>honeypot_src_ips=[3-9][0-9]*|auth_failures=([5-9]|[1-9][0-9]+)|real_external=true.*(services_touched=[2-9]|exploit_marker=true)</regex>
+    <description>Honeypot authentication failure burst, source diversity, or correlated public probing</description>
+    <group>opxdr_siem,honeypot,credential_access,real_external,high,</group>
     <mitre>
       <id>T1110</id>
       <id>T1021.004</id>
@@ -88,6 +99,17 @@
     <mitre>
       <id>T1059</id>
       <id>T1021.004</id>
+    </mitre>
+  </rule>
+
+  <rule id="209310" level="15">
+    <if_sid>209300</if_sid>
+    <regex>real_external=true.*malware_retrieval_attempt=true.*contained_session=true</regex>
+    <description>Critical isolated honeypot malware retrieval attempt</description>
+    <group>opxdr_siem,honeypot,real_external,malware_retrieval,critical,</group>
+    <mitre>
+      <id>T1105</id>
+      <id>T1059</id>
     </mitre>
   </rule>
 </group>
